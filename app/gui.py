@@ -19,7 +19,9 @@ class ColorChemSystemGUI:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Color and Chemicals Management System")
+        # إضافة رقم الإصدار لعنوان النافذة
+        from app.config import APP_VERSION
+        self.root.title(f"Color and Chemicals Management System - v{APP_VERSION}")
         
         # تعيين أيقونة البرنامج
         try:
@@ -29,6 +31,9 @@ class ColorChemSystemGUI:
             pass
             
         self.root.after(1, lambda: self.root.state('zoomed'))
+        
+        # التحقق من التحديثات تلقائياً عند بدء التشغيل بعد ثانية واحدة
+        self.root.after(1000, self.check_for_updates_silent)
 
         # ✅ إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير معرف
         try:
@@ -143,9 +148,22 @@ class ColorChemSystemGUI:
         is_update, version, notes, url = self.updater.check_for_updates()
         if is_update:
             if messagebox.askyesno("Update Available", f"New version {version} is available.\n\nNotes:\n{notes}\n\nDo you want to download it?"):
-                self.updater.download_and_install(url)
+                import webbrowser
+                webbrowser.open("https://github.com/bibo-crypto/DyeMaster-pro/releases/latest")
         else:
             messagebox.showinfo("Update", "You are using the latest version.")
+
+    def check_for_updates_silent(self):
+        """التحقق من وجود تحديثات تلقائياً عند بدء التشغيل"""
+        try:
+            is_update, version, notes, url = self.updater.check_for_updates()
+            if is_update:
+                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to download and install it automatically?"):
+                    success = self.updater.download_and_install(url)
+                    if success:
+                        messagebox.showinfo("Update", "Update downloaded. Please restart the application to apply the update.")
+        except Exception as e:
+            print(f"Silent update check failed: {e}")
 
     def show_about_dialog(self):
         """عرض نافذة حول"""

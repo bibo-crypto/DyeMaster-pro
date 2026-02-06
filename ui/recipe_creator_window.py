@@ -28,7 +28,7 @@ class RecipeCreatorWindow:
         # ضبط أبعاد النافذة لتكون متجاوبة
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
-        width = int(screen_width * 0.9)
+        width = int(screen_width * 0.95)
         height = int(screen_height * 0.9)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
