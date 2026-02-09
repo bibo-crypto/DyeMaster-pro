@@ -158,10 +158,9 @@ class ColorChemSystemGUI:
         try:
             is_update, version, notes, url = self.updater.check_for_updates()
             if is_update:
-                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to download and install it automatically?"):
-                    success = self.updater.download_and_install(url)
-                    if success:
-                        messagebox.showinfo("Update", "Update downloaded. Please restart the application to apply the update.")
+                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to go to the download page?"):
+                    import webbrowser
+                    webbrowser.open("https://github.com/bibo-crypto/DyeMaster-pro/releases/latest")
         except Exception as e:
             print(f"Silent update check failed: {e}")
 

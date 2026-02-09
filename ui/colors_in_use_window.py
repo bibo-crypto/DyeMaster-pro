@@ -8,20 +8,10 @@ from typing import Dict, List, Any
 from app.models import Recipe, Color
 from color_helper import fix_color_code, validate_color_data
 
-# ✅ استيراد مباشر
-try:
-    from app.database import DatabaseManager
-    from app.utils import clean_color_code
-    from app.config import DYE_TYPES
-except ImportError:
-    try:
-        from app.database import DatabaseManager
-        from app.utils import clean_color_code
-        from app.config import DYE_TYPES
-    except ImportError:
-        from app.database import DatabaseManager
-        from app.utils import clean_color_code
-        from app.config import DYE_TYPES
+# ✅ استيراد مباشر من حزمة التطبيق
+from app.database import DatabaseManager
+from app.utils import clean_color_code
+from app.config import DYE_TYPES
 
 import pandas as pd
 from datetime import datetime

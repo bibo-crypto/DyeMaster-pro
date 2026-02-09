@@ -65,31 +65,11 @@ def setup_logging():
         ]
     )
 
-def apply_update():
-    """تطبيق التحديث إذا كان موجوداً"""
-    try:
-        update_file = "update_temp.exe"
-        current_exe = sys.executable
-
-        if os.path.exists(update_file):
-            # استبدال الملف التنفيذي الحالي
-            shutil.move(update_file, current_exe)
-            return True
-    except Exception as e:
-        print(f"Failed to apply update: {e}")
-    return False
-
 def main():
     """الدالة الرئيسية لتشغيل التطبيق"""
     setup_logging()
     logger = logging.getLogger(__name__)
     try:
-        # تطبيق التحديث إذا كان موجوداً
-        if apply_update():
-            logger.info("Update applied successfully")
-            # إعادة تشغيل التطبيق
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-
         # إضافة مسار المشروع إلى sys.path
         app_dir = os.path.dirname(os.path.abspath(__file__))
         project_dir = os.path.dirname(app_dir)
@@ -112,9 +92,9 @@ def main():
         # تشغيل الواجهة
         root = tk.Tk()
         root.withdraw() # إخفاء النافذة الرئيسية مؤقتاً
-
+        
         app = ColorChemSystemGUI(root)
-
+        
         # توسيط النافذة
         root.update_idletasks()
         width = root.winfo_width()
@@ -124,9 +104,9 @@ def main():
         x = (screen_width // 2) - (width // 2)
         y = (screen_height // 2) - (height // 2)
         root.geometry(f'{width}x{height}+{x}+{y}')
-
+        
         root.deiconify() # إظهار النافذة الرئيسية بعد التوسيط
-
+        
         app.run()
 
     except Exception as e:

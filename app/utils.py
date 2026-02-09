@@ -1,16 +1,16 @@
 """
 دوال مساعدة
 """
-import pandas as pd
 from typing import Any, Optional
 from datetime import datetime
+import math
 
 
 def clean_color_code(code: Any) -> str:
     """
     تنظيف كود اللون
     """
-    if pd.isna(code):
+    if code is None or (isinstance(code, float) and math.isnan(code)):
         return ""
 
     code_str = str(code).strip()
@@ -31,7 +31,7 @@ def clean_color_code(code: Any) -> str:
 def clean_recipe_code(code: Any) -> str:
     """تنظيف كود الريتشتة"""
     import re
-    if pd.isna(code):
+    if code is None or (isinstance(code, float) and math.isnan(code)):
         return ""
 
     # First, keep only digits from the string

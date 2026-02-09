@@ -347,6 +347,27 @@ class DatabaseManager:
             except sqlite3.OperationalError:
                 pass  # العمود موجود بالفعل
 
+            # تحديث جدول colors بالأعمدة الجديدة لتجنب أخطاء التشغيل
+            try:
+                cursor.execute('ALTER TABLE colors ADD COLUMN supplier TEXT')
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute('ALTER TABLE colors ADD COLUMN price_kg REAL DEFAULT 0.0')
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute('ALTER TABLE colors ADD COLUMN resa_percent REAL DEFAULT 0.0')
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute('ALTER TABLE colors ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+            except sqlite3.OperationalError:
+                pass
+
             try:
                 cursor.execute('ALTER TABLE recipes ADD COLUMN total_percentage REAL DEFAULT 0.0')
             except sqlite3.OperationalError:
@@ -516,7 +537,7 @@ class DatabaseManager:
     def get_color_by_id(self, color_id):
         """الحصول على لون بواسطة ID"""
         try:
-            conn = self.db.get_connection()  # استخدم self.db بدلاً من self.get_connection()
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -1436,31 +1457,3 @@ class DatabaseManager:
         """تنظيف عناصر الـ Cache المنتهية الصلاحية"""
         from app.cache import cache_manager
         cache_manager.cleanup_expired()
-
-
-def add_color_simple(self, color_data):
-    """إضافة لون بطريقة بسيطة"""
-    try:
-        # التحقق من وجود الكود مسبقاً
-        existing = self.execute_query("SELECT COUNT(*) FROM colors WHERE code = ?",
-                                      (color_data.get('code'),))
-        if existing:
-            count = existing.fetchone()[0]
-            if count > 0:
-                return False
-
-        # إضافة اللون
-        success = self.execute_query(
-            "INSERT INTO colors (code, name, dye_type, supplier, price_kg, resa_percent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (color_data.get('code', ''),
-             color_data.get('name', ''),
-             color_data.get('dye_type', 'Reattivi Freddi'),
-             color_data.get('supplier', ''),
-             color_data.get('price_kg', 0.0),
-             color_data.get('resa_percent', 0.0),
-             color_data.get('created_at', get_current_timestamp()),
-             color_data.get('updated_at', get_current_timestamp()))
-        )
-        return success
-    except Exception:
-        return False
