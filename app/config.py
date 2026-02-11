@@ -5,7 +5,16 @@ import os
 from pathlib import Path
 
 # إصدار التطبيق
-APP_VERSION = "1.0.0"
+def get_app_version():
+    """الحصول على إصدار التطبيق من ملف منفصل"""
+    version_file = os.path.join(os.path.dirname(__file__), "version.txt")
+    try:
+        with open(version_file, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except:
+        return "1.0.0"
+
+APP_VERSION = get_app_version()
 
 # المسارات الأساسية
 USER_DATA_DIR = os.path.join(str(Path.home()), ".colorchemsystem")

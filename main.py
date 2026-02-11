@@ -7,6 +7,7 @@ import os
 import sys
 import traceback
 import logging
+import ctypes
 from app.config import LOG_DIR
 
 def initialize_application():
@@ -67,8 +68,46 @@ def setup_logging():
 
 def main():
     """الدالة الرئيسية لتشغيل التطبيق"""
+    # منع تشغيل الواجهة أثناء تحليل PyInstaller
+    try:
+        import psutil
+        parent = psutil.Process(os.getpid()).parent()
+        if 'pyinstaller' in parent.name().lower():
+            return
+    except:
+        pass
+
     setup_logging()
     logger = logging.getLogger(__name__)
+
+    # منع تشغيل نسخ متعددة
+    lock_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.lock")
+    if os.path.exists(lock_file):
+        try:
+            with open(lock_file, 'r') as f:
+                pid = int(f.read().strip())
+            # التحقق إذا كان العملية لا تزال تعمل
+            try:
+                import psutil
+                if psutil.pid_exists(pid):
+                    messagebox.showwarning("Application Already Running", "The application is already running.")
+                    sys.exit(0)
+                else:
+                    # العملية انتهت، حذف الملف
+                    os.remove(lock_file)
+            except ImportError:
+                # إذا لم يكن psutil مثبتاً، نفترض أن العملية لا تعمل
+                os.remove(lock_file)
+        except:
+            os.remove(lock_file)
+
+    # إنشاء ملف القفل
+    try:
+        with open(lock_file, 'w') as f:
+            f.write(str(os.getpid()))
+    except:
+        pass
+
     try:
         # إضافة مسار المشروع إلى sys.path
         app_dir = os.path.dirname(os.path.abspath(__file__))
@@ -91,22 +130,12 @@ def main():
 
         # تشغيل الواجهة
         root = tk.Tk()
-        root.withdraw() # إخفاء النافذة الرئيسية مؤقتاً
-        
+
         app = ColorChemSystemGUI(root)
-        
-        # توسيط النافذة
-        root.update_idletasks()
-        width = root.winfo_width()
-        height = root.winfo_height()
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-        root.geometry(f'{width}x{height}+{x}+{y}')
-        
-        root.deiconify() # إظهار النافذة الرئيسية بعد التوسيط
-        
+
+        # تكبير النافذة
+        root.state('zoomed')
+
         app.run()
 
     except Exception as e:

@@ -32,8 +32,8 @@ class ColorChemSystemGUI:
             
         self.root.after(1, lambda: self.root.state('zoomed'))
         
-        # التحقق من التحديثات تلقائياً عند بدء التشغيل بعد ثانية واحدة
-        self.root.after(1000, self.check_for_updates_silent)
+        # التحقق من التحديثات تلقائياً عند بدء التشغيل بعد 5 ثوانٍ (لمنع التكرار)
+        self.root.after(5000, self.check_for_updates_silent)
 
         # ✅ إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير معرف
         try:
@@ -56,6 +56,11 @@ class ColorChemSystemGUI:
         self.dark_mode = False
         self.sort_column = "code"
         self.sort_ascending = True
+
+        # منع التحقق من التحديثات المتكررة
+        self.update_check_in_progress = False
+        self.update_check_completed = False  # منع التحقق المتكرر
+        self.update_check_scheduled = False  # منع جدولة التحقق المتكررة
 
         # تحسين المظهر العام
         self.style = ttk.Style()
@@ -155,14 +160,53 @@ class ColorChemSystemGUI:
 
     def check_for_updates_silent(self):
         """التحقق من وجود تحديثات تلقائياً عند بدء التشغيل"""
+        import os
+        import time
+
+        # ملف القفل لمنع التحقق المتعدد
+        lock_file = os.path.join(os.path.dirname(__file__), '..', 'update_check.lock')
+
+        # التحقق من وجود ملف قفل (يعني تحقق جاري)
+        if os.path.exists(lock_file):
+            try:
+                # التحقق من عمر الملف (إذا كان قديماً جداً، احذفه)
+                file_age = time.time() - os.path.getmtime(lock_file)
+                if file_age > 300:  # 5 دقائق
+                    os.remove(lock_file)
+                else:
+                    return  # تحقق جاري، لا تفعل شيئاً
+            except:
+                return
+
+        # منع التحقق من التحديثات إذا كان هناك تحقق جاري بالفعل أو تم إكمال التحقق
+        if self.update_check_in_progress or self.update_check_completed:
+            return
+
+        # إنشاء ملف القفل
+        try:
+            with open(lock_file, 'w') as f:
+                f.write(str(time.time()))
+        except:
+            return  # لا يمكن إنشاء الملف، ربما مشكلة صلاحيات
+
+        self.update_check_in_progress = True
+
         try:
             is_update, version, notes, url = self.updater.check_for_updates()
             if is_update:
-                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to go to the download page?"):
-                    import webbrowser
-                    webbrowser.open("https://github.com/bibo-crypto/DyeMaster-pro/releases/latest")
+                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to download and install it?"):
+                    self.updater.download_and_install(url)
+                    self.update_check_completed = True  # منع التحقق مرة أخرى بعد قبول التحديث
         except Exception as e:
             print(f"Silent update check failed: {e}")
+        finally:
+            self.update_check_in_progress = False
+            # حذف ملف القفل
+            try:
+                if os.path.exists(lock_file):
+                    os.remove(lock_file)
+            except:
+                pass
 
     def show_about_dialog(self):
         """عرض نافذة حول"""
@@ -967,7 +1011,15 @@ class ColorChemSystemGUI:
         except Exception as e:
             print(f"[-] Auto backup failed: {str(e)}")
             # لا نمنع الإغلاق حتى إذا فشل الـ backup
-        
+
+        # حذف ملف القفل عند الإغلاق
+        lock_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.lock")
+        try:
+            if os.path.exists(lock_file):
+                os.remove(lock_file)
+        except:
+            pass
+
         # إغلاق البرنامج بشكل طبيعي
         self.root.destroy()
 

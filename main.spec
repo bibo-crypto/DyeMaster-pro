@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('icon.ico', '.'), ('app', 'app'), ('ui', 'ui')]
 binaries = []
-hiddenimports = []
+hiddenimports = ['sqlite3', '_sqlite3']
 tmp_ret = collect_all('ColorChemSystem')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
