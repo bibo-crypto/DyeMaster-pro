@@ -27,7 +27,7 @@ class RecipesWindow:
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.9)
+        height = int(screen_height * 0.82)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -35,11 +35,7 @@ class RecipesWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.state('zoomed')
-
-        # Make window modal
-        self.window.transient(parent)
-        self.window.grab_set()
+        self.window.minsize(980, 620)
 
 
         # تحميل البيانات

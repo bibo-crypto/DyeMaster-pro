@@ -28,8 +28,8 @@ class RecipeCreatorWindow:
         # ضبط أبعاد النافذة لتكون متجاوبة
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
-        width = int(screen_width * 0.95)
-        height = int(screen_height * 0.9)
+        width = int(screen_width * 0.9)
+        height = int(screen_height * 0.82)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -38,11 +38,10 @@ class RecipeCreatorWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.state('zoomed')
+        self.window.minsize(980, 620)
 
-        # Make window modal
-        self.window.transient(parent)
-        self.window.grab_set()
+        # Keep it as a normal top-level window so Windows title-bar controls
+        # (Close / Restore / Minimize) remain fully available.
 
         # متغيرات
         self.selected_colors: List[Dict] = []

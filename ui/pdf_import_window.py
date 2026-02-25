@@ -25,8 +25,7 @@ class _AddMissingColorsWindow:
         self.window.title("Register New Colors")
         self.window.geometry("600x400")
         self.window.configure(bg="#f0f0f0")
-        self.window.transient(parent)
-        self.window.grab_set()
+        # Keep this as a normal top-level window (with full title-bar controls).
 
         self.color_entries = []
 
@@ -155,7 +154,7 @@ class PDFImportWindow:
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.9)
+        height = int(screen_height * 0.82)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -164,7 +163,7 @@ class PDFImportWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.state('zoomed')
+        self.window.minsize(980, 620)
 
         self.configure_styles()
         self.setup_ui()

@@ -2,23 +2,29 @@
 الواجهة الرئيسية
 """
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, filedialog, messagebox
+import os
+from datetime import datetime
 import shutil
 import sqlite3
 
-from app.config import *
+from app.config import DYE_TYPES
 from app.database import DatabaseManager
-from app.utils import *
+from app.utils import format_currency, format_percentage, clean_color_code, get_current_timestamp
 from app.models import Color
 from app.updater import AppUpdater
+from app.tester import run_tests_from_gui
 import logging
 
 
 class ColorChemSystemGUI:
     """الواجهة الرئيسية للتطبيق"""
-
+    
     def __init__(self, root):
+        """تهيئة الواجهة"""
         self.root = root
+        self.logger = logging.getLogger(self.__class__.__name__)
+        
         # إضافة رقم الإصدار لعنوان النافذة
         from app.config import APP_VERSION
         self.root.title(f"Color and Chemicals Management System - v{APP_VERSION}")
@@ -32,8 +38,10 @@ class ColorChemSystemGUI:
             
         self.root.after(1, lambda: self.root.state('zoomed'))
         
-        # التحقق من التحديثات تلقائياً عند بدء التشغيل بعد 5 ثوانٍ (لمنع التكرار)
-        self.root.after(5000, self.check_for_updates_silent)
+        # Disable silent auto-update checks on startup to avoid background relaunch behavior.
+        # Users can still check updates manually from the menu.
+        # Silent auto-update check disabled - only enable via "Test Update" button
+        # self.root.after(1000, self.check_for_updates_silent)
 
         # ✅ إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير معرف
         try:
@@ -57,11 +65,6 @@ class ColorChemSystemGUI:
         self.sort_column = "code"
         self.sort_ascending = True
 
-        # منع التحقق من التحديثات المتكررة
-        self.update_check_in_progress = False
-        self.update_check_completed = False  # منع التحقق المتكرر
-        self.update_check_scheduled = False  # منع جدولة التحقق المتكررة
-
         # تحسين المظهر العام
         self.style = ttk.Style()
         self.style.theme_use('clam')
@@ -78,7 +81,51 @@ class ColorChemSystemGUI:
 
     def import_data(self):
         """استيراد البيانات"""
-        messagebox.showinfo("قيد التطوير", "خاصية الاستيراد قيد التطوير حالياً")
+        try:
+            from app.config import BACKUP_DIR
+
+            backup_file = filedialog.askopenfilename(
+                title="Select Backup File",
+                initialdir=BACKUP_DIR if os.path.isdir(BACKUP_DIR) else os.path.expanduser("~"),
+                filetypes=[("Database files", "*.db"), ("All files", "*.*")]
+            )
+            if not backup_file:
+                return
+
+            if not os.path.isfile(backup_file):
+                messagebox.showerror("Import Error", "Selected backup file does not exist.")
+                return
+
+            confirm = messagebox.askyesno(
+                "Confirm Import",
+                "This will replace current application data with the selected backup.\n"
+                "A safety backup of current data will be created first.\n\n"
+                "Do you want to continue?"
+            )
+            if not confirm:
+                return
+
+            # Safety backup before restore.
+            safety_backup_path = self.db.backup_database()
+
+            db_file = self.db.db_file
+            os.makedirs(os.path.dirname(db_file), exist_ok=True)
+            shutil.copy2(backup_file, db_file)
+
+            # Quick validation that restored file is a readable sqlite DB.
+            conn = sqlite3.connect(db_file)
+            conn.execute("SELECT name FROM sqlite_master LIMIT 1")
+            conn.close()
+
+            self.load_data()
+            messagebox.showinfo(
+                "Import Completed",
+                "Backup imported successfully.\n\n"
+                f"Restored from: {backup_file}\n"
+                f"Safety backup created at: {safety_backup_path}"
+            )
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Failed to import backup: {str(e)}")
 
     def create_menu_bar(self):
         """إنشاء شريط القوائم"""
@@ -111,9 +158,11 @@ class ColorChemSystemGUI:
         tools_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="Tools", menu=tools_menu)
         tools_menu.add_command(label="Backup Database", command=self.backup_database)
-        tools_menu.add_command(label="🔄 Check for Updates", command=self.check_updates)
+        tools_menu.add_command(label="Import Data", command=self.import_data)
+        tools_menu.add_command(label="Check for Updates", command=self.check_updates)
+        tools_menu.add_command(label="Test Update", command=self.test_update)
         tools_menu.add_separator()
-        tools_menu.add_command(label="🧪 Run System Tests", command=self.run_system_tests)
+        tools_menu.add_command(label="Run System Tests", command=self.run_system_tests)
 
         # قائمة Help
         help_menu = tk.Menu(menu_bar, tearoff=0)
@@ -122,9 +171,8 @@ class ColorChemSystemGUI:
 
     def show_add_color_form(self):
         """عرض نموذج إضافة لون"""
-        # مسح الحقول والبدء بإضافة جديدة
         self.clear_fields()
-        messagebox.showinfo("إضافة لون", "املأ الحقول في أسفل النافذة ثم انقر على 'Add Color'")
+        messagebox.showinfo("Add Color", "Use the form below to add a new color")
 
     def show_add_recipe_form(self):
         """عرض نموذج إضافة وصفة"""
@@ -132,95 +180,96 @@ class ColorChemSystemGUI:
 
     def show_colors_page(self):
         """عرض صفحة الألوان"""
-        # نحن بالفعل في صفحة الألوان
         pass
 
     def show_recipes_page(self):
         """عرض صفحة الريتشتات"""
-        self.open_saved_recipes()
+        pass
 
     def show_colors_in_use_page(self):
         """عرض صفحة الألوان المستخدمة"""
         self.open_colors_in_use()
 
-    
-    def show_settings_page(self):
-        """عرض صفحة الإعدادات"""
-        messagebox.showinfo("الإعدادات", "الإعدادات قيد التطوير")
-
     def check_updates(self):
         """التحقق من التحديثات"""
-        is_update, version, notes, url = self.updater.check_for_updates()
-        if is_update:
-            if messagebox.askyesno("Update Available", f"New version {version} is available.\n\nNotes:\n{notes}\n\nDo you want to download it?"):
-                import webbrowser
-                webbrowser.open("https://github.com/bibo-crypto/DyeMaster-pro/releases/latest")
-        else:
-            messagebox.showinfo("Update", "You are using the latest version.")
+        try:
+            is_update, version, notes, download_info = self.updater.get_latest_release()
+            if is_update:
+                if messagebox.askyesno(
+                    "Update Available",
+                    f"New version {version} is available.\n\nNotes:\n{notes}\n\nInstall now?"
+                ):
+                    success = self.updater.download_and_install(download_info, version)
+                    if success:
+                        messagebox.showinfo(
+                            "Update",
+                            "Update downloaded. The app will close now and restart with the new version."
+                        )
+                        self.root.after(200, self.root.destroy)
+            else:
+                messagebox.showinfo("Update", "You are using the latest version.")
+        except Exception as e:
+            messagebox.showerror("Update Error", f"Failed to check for updates: {str(e)}")
+
+    def test_update(self):
+        """Force test update flow using latest release payload."""
+        if not messagebox.askyesno(
+            "Test Update",
+            "This will force-download the latest release and restart the app.\n\nContinue?"
+        ):
+            return
+
+        is_available, version, notes, download_info = self.updater.get_latest_release()
+        if not is_available:
+            messagebox.showerror("Test Update", "Could not fetch latest release info from GitHub.")
+            return
+
+        if messagebox.askyesno(
+            "Test Update Ready",
+            f"Latest release: v{version}\n\nNotes:\n{notes}\n\nInstall now?"
+        ):
+            success = self.updater.download_and_install(download_info, version)
+            if success:
+                messagebox.showinfo(
+                    "Test Update",
+                    "Update downloaded. The app will close now and relaunch the new version."
+                )
+                self.root.after(200, self.root.destroy)
+
+    def test_button_click(self):
+        """Test button click handler - shows a message box."""
+        messagebox.showinfo("Test Button", "Test button clicked!")
 
     def check_for_updates_silent(self):
         """التحقق من وجود تحديثات تلقائياً عند بدء التشغيل"""
-        import os
-        import time
-
-        # ملف القفل لمنع التحقق المتعدد
-        lock_file = os.path.join(os.path.dirname(__file__), '..', 'update_check.lock')
-
-        # التحقق من وجود ملف قفل (يعني تحقق جاري)
-        if os.path.exists(lock_file):
-            try:
-                # التحقق من عمر الملف (إذا كان قديماً جداً، احذفه)
-                file_age = time.time() - os.path.getmtime(lock_file)
-                if file_age > 300:  # 5 دقائق
-                    os.remove(lock_file)
-                else:
-                    return  # تحقق جاري، لا تفعل شيئاً
-            except:
-                return
-
-        # منع التحقق من التحديثات إذا كان هناك تحقق جاري بالفعل أو تم إكمال التحقق
-        if self.update_check_in_progress or self.update_check_completed:
-            return
-
-        # إنشاء ملف القفل
         try:
-            with open(lock_file, 'w') as f:
-                f.write(str(time.time()))
-        except:
-            return  # لا يمكن إنشاء الملف، ربما مشكلة صلاحيات
-
-        self.update_check_in_progress = True
-
-        try:
-            is_update, version, notes, url = self.updater.check_for_updates()
+            print("Checking for updates...")
+            is_update, version, notes, download_info = self.updater.check_for_updates()
+            print(f"Update available: {is_update}, version: {version}")
             if is_update:
-                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to download and install it?"):
-                    self.updater.download_and_install(url)
-                    self.update_check_completed = True  # منع التحقق مرة أخرى بعد قبول التحديث
+                print("Update found, showing dialog...")
+                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to download and install it automatically?"):
+                    print("User accepted update, downloading...")
+                    success = self.updater.download_and_install(download_info, version)
+                    print(f"Update success: {success}")
+                    if success:
+                        self.root.after(200, self.root.destroy)
         except Exception as e:
             print(f"Silent update check failed: {e}")
-        finally:
-            self.update_check_in_progress = False
-            # حذف ملف القفل
-            try:
-                if os.path.exists(lock_file):
-                    os.remove(lock_file)
-            except:
-                pass
 
     def show_about_dialog(self):
         """عرض نافذة حول"""
-        about_text = """
-        Color and Chemicals Management System
-        
-        Version: 1.0.0
-        Developer: Bibo Marcos
-        
-        نظام إدارة الألوان والكيماويات
-        خاص بمصانع الصباغة والنسيج
-        
-        © 2024 جميع الحقوق محفوظة
-        """
+        from app.config import APP_VERSION
+        about_text = f"""Color and Chemicals Management System
+
+Version: {APP_VERSION}
+Developer: Bibo Marcos
+
+نظام إدارة الألوان والكيميائيات
+خاصة بمصنع الصباغة والنسيج
+
+© 2024 شركة الحقائق محفوظة
+"""
         messagebox.showinfo("About", about_text)
 
     def toggle_dark_mode(self):
@@ -229,14 +278,12 @@ class ColorChemSystemGUI:
         self.configure_styles()
         
         if self.dark_mode:
-            self.dark_mode_button.config(text="☀️")
+            self.dark_mode_button.config(text="Light")
         else:
-            self.dark_mode_button.config(text="🌙")
+            self.dark_mode_button.config(text="Dark")
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
-        self.style = ttk.Style()
-        self.style.theme_use('clam')
 
         # --- Color Palette ---
         if self.dark_mode:
@@ -344,8 +391,6 @@ class ColorChemSystemGUI:
 
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
-        # إنشاء القوائم
-        self.create_menu_bar()
 
         # إطار رئيسي
         self.main_frame = ttk.Frame(self.root, padding="10")
@@ -365,30 +410,41 @@ class ColorChemSystemGUI:
 
         # شريط الحالة
         self.setup_status_bar()
+        
+        # إنشاء شريط القوائم
+        self.create_menu_bar()
 
     def setup_toolbar(self):
         """إعداد شريط الأدوات"""
-        toolbar_frame = ttk.LabelFrame(self.main_frame, text="Tools", padding=10)
+        toolbar_frame = ttk.Frame(self.main_frame)
         toolbar_frame.pack(fill=tk.X, pady=5)
 
 
         # الأزرار الأصلية
-        ttk.Button(toolbar_frame, text="🔄 Refresh List", command=self.load_data, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="➕ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="📋 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="🗑️ Clear Fields", command=self.clear_fields, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="Refresh List", command=self.load_data, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="Clear Fields", command=self.clear_fields, style="App.TButton").pack(side=tk.LEFT, padx=5)
 
         # زر Backup
-        ttk.Button(toolbar_frame, text="💾 Backup DB",
+        ttk.Button(toolbar_frame, text="Backup DB",
                    command=self.backup_database, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="Import Data",
+                   command=self.import_data, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="Test Update",
+                   command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=5)
+        
+        # Test button for update verification
+        ttk.Button(toolbar_frame, text="Test",
+                   command=self.test_button_click, style="App.TButton").pack(side=tk.LEFT, padx=5)
 
         # زر Statistics
 
-        ttk.Button(toolbar_frame, text="📄 Import PDF",
+        ttk.Button(toolbar_frame, text="Import PDF",
                    command=self.open_pdf_import, width=12, style='Import.TButton').pack(side=tk.LEFT, padx=5)
 
-        self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙", command=self.toggle_dark_mode, width=4)
+        self.dark_mode_button = ttk.Button(toolbar_frame, text="Dark", command=self.toggle_dark_mode, width=6)
         self.dark_mode_button.pack(side=tk.RIGHT, padx=5)
 
 
@@ -403,7 +459,7 @@ class ColorChemSystemGUI:
     
     def setup_search_frame(self):
         """إعداد إطار البحث"""
-        search_frame = ttk.LabelFrame(self.main_frame, text="Search & Filter", padding=10)
+        search_frame = ttk.LabelFrame(self.main_frame, text="Search", padding="5")
         search_frame.pack(fill=tk.X, pady=5)
 
         ttk.Label(search_frame, text="Search:").grid(row=0, column=0, padx=5)
@@ -425,7 +481,7 @@ class ColorChemSystemGUI:
 
     def setup_input_frame(self):
         """إعداد إطار إدخال البيانات"""
-        input_frame = ttk.LabelFrame(self.main_frame, text="Color Data", padding=10)
+        input_frame = ttk.LabelFrame(self.main_frame, text="Color Details", padding="5")
         input_frame.pack(fill=tk.X, pady=5)
 
         # الصف الأول
@@ -475,7 +531,7 @@ class ColorChemSystemGUI:
 
     def setup_table(self):
         """إعداد الجدول"""
-        table_frame = ttk.LabelFrame(self.main_frame, text="Colors List", padding=10)
+        table_frame = ttk.Frame(self.main_frame)
         table_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
         columns = [
@@ -515,28 +571,30 @@ class ColorChemSystemGUI:
 
     def setup_status_bar(self):
         """إعداد شريط الحالة"""
-        self.status_bar = ttk.Label(self.root, text="Ready - Color and Chemicals Management System",
-                                    relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar = tk.Label(
+            self.root, 
+            text="Ready", 
+            bd=1, 
+            relief=tk.SUNKEN, 
+            anchor=tk.W
+        )
         self.status_bar.pack(fill=tk.X, side=tk.BOTTOM, ipady=2)
 
     # دوال التحقق
     def validate_code_input(self, action, value):
         """التحقق من صحة إدخال الكود"""
-        if action == '1':
-            if value == '':
-                return True
-            return value.isdigit() and len(value) <= 5
-        return True
+        if action == '1':  # Insert
+            return True
+        return value.isdigit() and len(value) <= 5
 
     def load_data(self):
         """تحميل البيانات"""
         try:
-            # مسح الجدول
             for row in self.colors_table.get_children():
                 self.colors_table.delete(row)
 
             # تحميل الألوان
-            colors = self.db.get_all_colors()  # <-- هنا المشكلة!
+            colors = self.db.get_all_colors()
 
             # إضافة البيانات للجدول
             for color in colors:
@@ -611,16 +669,12 @@ class ColorChemSystemGUI:
 
     def treeview_sort_column(self, tv, col):
         """دالة لترتيب Treeview حسب العمود مع عكس الترتيب عند النقر مرة أخرى"""
-        # الحصول على كل العناصر
-        items = [(tv.set(k, col), k) for k in tv.get_children('')]
-
-        # محاولة ترتيب الأرقام
         try:
-            items.sort(key=lambda t: float(t[0].replace('€', '').replace('%', '').strip())
-            if t[0].replace('€', '').replace('%', '').replace('.', '', 1).isdigit()
-            else t[0], reverse=self.sort_ascending)
+            items = [(tv.set(k, col), k) for k in tv.get_children('')]
+            items.sort(key=lambda t: t[0], reverse=self.sort_ascending)
         except:
             # إذا فشل، ترتيب نصي
+            items = [(tv.set(k, col), k) for k in tv.get_children('')]
             items.sort(key=lambda t: t[0], reverse=self.sort_ascending)
 
         # إعادة ترتيب العناصر
@@ -809,7 +863,6 @@ class ColorChemSystemGUI:
     def modify_color_directly(self, old_code):
         """تعديل لون غير مستخدم مباشرة"""
         try:
-            # الحصول على البيانات من الحقول
             new_code = self.code_entry.get().strip()
             name = self.name_entry.get().strip()
             dye_type = self.type_combo.get()
@@ -925,12 +978,16 @@ class ColorChemSystemGUI:
 
     def on_double_click(self, event):
         """عند النقر المزدوج على الجدول"""
-        self.on_table_select(event)
+        # يمكن إضافة功能 هنا للتعامل مع النقر المزدوج
+        pass
 
     def open_recipe_creator(self):
         """فتح نافذة إنشاء وصفة"""
-        from ui.recipe_creator_window import RecipeCreatorWindow
-        RecipeCreatorWindow(self.root, self.db)
+        try:
+            from ui.recipe_creator_window import RecipeCreatorWindow
+            RecipeCreatorWindow(self.root, self.db)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Recipe Creator: {str(e)}")
 
     def open_saved_recipes(self):
         """فتح نافذة الريتشتات المحفوظة"""
@@ -942,14 +999,16 @@ class ColorChemSystemGUI:
 
     def open_colors_in_use(self):
         """فتح نافذة الألوان المستخدمة"""
-        from ui.colors_in_use_window import ColorsInUseWindow
-        ColorsInUseWindow(self.root, self.db)
+        try:
+            from ui.colors_in_use_window import ColorsInUseWindow
+            ColorsInUseWindow(self.root, self.db)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Colors in Use window: {str(e)}")
 
     def backup_database(self):
         """إنشاء نسخة احتياطية من قاعدة البيانات"""
         try:
-            from tkinter import filedialog
-            from datetime import datetime
+            from app.config import BACKUP_DIR
 
             # اختيار مجلد الحفظ
             folder = filedialog.askdirectory(title="Select Backup Folder")
@@ -984,20 +1043,19 @@ class ColorChemSystemGUI:
                     f.write(f"- Colors: {len(colors)}\n")
                     f.write(f"- Recipes: {len(recipes)}\n")
 
-                messagebox.showinfo("✅ تم النسخ الاحتياطي",
-                                    f"تم إنشاء النسخة الاحتياطية بنجاح!\n\n"
-                                    f"الملف: {backup_file}\n"
-                                    f"معلومات: {info_file}")
+                messagebox.showinfo("Backup Complete",
+                                    f"Backup created successfully!\n\n"
+                                    f"File: {backup_file}\n"
+                                    f"Info: {info_file}")
             else:
-                messagebox.showerror("خطأ", "لم يتم العثور على ملف قاعدة البيانات")
+                messagebox.showerror("Error", "Could not find database file")
 
         except Exception as e:
-            messagebox.showerror("خطأ", f"فشل النسخ الاحتياطي: {str(e)}")
+            messagebox.showerror("Error", f"Failed to create backup: {str(e)}")
 
     def run_system_tests(self):
         """تشغيل اختبارات النظام"""
         try:
-            from app.tester import run_tests_from_gui
             run_tests_from_gui(self.root)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load tests: {str(e)}")
@@ -1005,21 +1063,15 @@ class ColorChemSystemGUI:
     def on_closing(self):
         """معالج حدث إغلاق البرنامج - عمل نسخة احتياطية تلقائية"""
         try:
-            # محاولة إنشاء نسخة احتياطية تلقائية
-            backup_path = self.db.backup_database()
-            print(f"[+] Auto backup created: {backup_path}")
+            backup_path = self.db.backup_database(once_per_day=True)
+            if backup_path:
+                print(f"[+] Auto backup created: {backup_path}")
+            else:
+                print("[=] Auto backup skipped (already created today).")
         except Exception as e:
             print(f"[-] Auto backup failed: {str(e)}")
             # لا نمنع الإغلاق حتى إذا فشل الـ backup
-
-        # حذف ملف القفل عند الإغلاق
-        lock_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.lock")
-        try:
-            if os.path.exists(lock_file):
-                os.remove(lock_file)
-        except:
-            pass
-
+        
         # إغلاق البرنامج بشكل طبيعي
         self.root.destroy()
 

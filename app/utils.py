@@ -1,16 +1,25 @@
 """
 دوال مساعدة
 """
+import math
 from typing import Any, Optional
 from datetime import datetime
-import math
+
+
+def _is_missing(value: Any) -> bool:
+    """Return True for None/NaN-like values without requiring pandas."""
+    if value is None:
+        return True
+    if isinstance(value, float):
+        return math.isnan(value)
+    return False
 
 
 def clean_color_code(code: Any) -> str:
     """
     تنظيف كود اللون
     """
-    if code is None or (isinstance(code, float) and math.isnan(code)):
+    if _is_missing(code):
         return ""
 
     code_str = str(code).strip()
@@ -31,7 +40,7 @@ def clean_color_code(code: Any) -> str:
 def clean_recipe_code(code: Any) -> str:
     """تنظيف كود الريتشتة"""
     import re
-    if code is None or (isinstance(code, float) and math.isnan(code)):
+    if _is_missing(code):
         return ""
 
     # First, keep only digits from the string

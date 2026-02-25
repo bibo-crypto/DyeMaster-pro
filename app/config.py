@@ -2,22 +2,45 @@
 إعدادات التطبيق
 """
 import os
+import sys
 from pathlib import Path
 
 # إصدار التطبيق
-def get_app_version():
-    """الحصول على إصدار التطبيق من ملف منفصل"""
-    version_file = os.path.join(os.path.dirname(__file__), "version.txt")
-    try:
-        with open(version_file, 'r', encoding='utf-8') as f:
-            return f.read().strip()
-    except:
-        return "1.0.0"
+def _resolve_version_file_path():
+    """Return version.txt path near executable (frozen) or project root (dev)."""
+    if getattr(sys, "frozen", False):
+        # First check _MEIPASS (bundled files location)
+        if hasattr(sys, "_MEIPASS"):
+            meipass_path = os.path.join(sys._MEIPASS, "version.txt")
+            if os.path.exists(meipass_path):
+                return meipass_path
+        # Fallback to directory next to executable
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, "version.txt")
 
-APP_VERSION = get_app_version()
+
+def _resolve_app_version(default="1.0.0"):
+    """Read app version from version.txt if present, fallback to default."""
+    version_file = _resolve_version_file_path()
+    try:
+        if os.path.exists(version_file):
+            with open(version_file, "r", encoding="utf-8") as f:
+                version = f.read().strip()
+                if version:
+                    return version
+    except Exception:
+        pass
+    return default
+
+
+APP_VERSION = _resolve_app_version()
 
 # المسارات الأساسية
-USER_DATA_DIR = os.path.join(str(Path.home()), ".colorchemsystem")
+# Use LOCALAPPDATA on Windows to avoid permission issues on home-root folders.
+_base_data_dir = os.environ.get("LOCALAPPDATA", str(Path.home()))
+USER_DATA_DIR = os.path.join(_base_data_dir, "ColorChemSystem")
 DATA_DIR = os.path.join(USER_DATA_DIR, "data")
 EXPORT_DIR = os.path.join(USER_DATA_DIR, "exports")
 BACKUP_DIR = os.path.join(USER_DATA_DIR, "backups")

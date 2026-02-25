@@ -8,12 +8,21 @@ from typing import Dict, List, Any
 from app.models import Recipe, Color
 from color_helper import fix_color_code, validate_color_data
 
-# ✅ استيراد مباشر من حزمة التطبيق
-from app.database import DatabaseManager
-from app.utils import clean_color_code
-from app.config import DYE_TYPES
+# ✅ استيراد مباشر
+try:
+    from app.database import DatabaseManager
+    from app.utils import clean_color_code
+    from app.config import DYE_TYPES
+except ImportError:
+    try:
+        from app.database import DatabaseManager
+        from app.utils import clean_color_code
+        from app.config import DYE_TYPES
+    except ImportError:
+        from app.database import DatabaseManager
+        from app.utils import clean_color_code
+        from app.config import DYE_TYPES
 
-import pandas as pd
 from datetime import datetime
 
 
@@ -96,15 +105,13 @@ class SimpleColorsWindow:
 
         self.window = tk.Toplevel(parent)
         self.window.title(f"✏️ Modify Color: {color_code}")
-        self.window.after(1, lambda: self.window.state('zoomed'))
 
         # ✅ حجم أصغر وأكثر كفاءة
         self.window.geometry("500x550")
         self.window.minsize(480, 500)
 
         # مركز النافذة
-        self.window.transient(parent)
-        self.window.grab_set()
+        # Keep this as a normal top-level window (with full title-bar controls).
 
         # تحميل بيانات اللون
         self.color_data = self.load_color_data()
@@ -686,7 +693,7 @@ class ColorsInUseWindow:
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.9)
+        height = int(screen_height * 0.82)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -694,11 +701,9 @@ class ColorsInUseWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.state('zoomed')
+        self.window.minsize(980, 620)
 
-        # Make window modal
-        self.window.transient(parent)
-        self.window.grab_set()
+        # Keep this as a normal top-level window (with full title-bar controls).
 
         # متغيرات
         self.color_usage: Dict[str, Dict[str, Any]] = {}

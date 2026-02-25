@@ -3,6 +3,7 @@
 """
 import sqlite3
 import os
+import shutil
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from app.utils import get_current_timestamp
@@ -12,15 +13,15 @@ from app.models import Color, Recipe, RecipeColor, RecipeDetails
 
 class ColorManager:
     """مدير الألوان - واجهة عالية المستوى لإدارة الألوان"""
-
+    
     def __init__(self, db_manager):
+        """تهيئة مدير الألوان"""
         self.db = db_manager
 
     def add_color(self, color_data: dict) -> Tuple[bool, str, Optional[Color]]:
         """إضافة لون جديد من قاموس"""
         try:
             from app.validators import Validators
-            from app.utils import clean_color_code, get_current_timestamp
 
             # التحقق من صحة البيانات
             is_valid, message, cleaned_data = Validators.validate_color_object(color_data)
@@ -28,6 +29,7 @@ class ColorManager:
                 return False, message, None
 
             # تنظيف الكود
+            from app.utils import clean_color_code
             cleaned_code = clean_color_code(cleaned_data.get('code', ''))
             cleaned_data['code'] = cleaned_code
 
@@ -67,7 +69,6 @@ class ColorManager:
     def update_color(self, old_code: str, color_data: dict) -> Tuple[bool, str, Optional[Color]]:
         """تحديث لون موجود"""
         try:
-            from app.validators import Validators
             from app.utils import clean_color_code, get_current_timestamp
 
             # الحصول على اللون القديم
@@ -75,6 +76,7 @@ class ColorManager:
             if not old_color:
                 return False, f"Color code '{old_code}' not found", None
 
+            from app.validators import Validators
             # التحقق من صحة البيانات
             is_valid, message, cleaned_data = Validators.validate_color_object(color_data)
             if not is_valid:
@@ -116,12 +118,11 @@ class ColorManager:
         except Exception as e:
             return False, str(e), None
 
-    # في database.py
-
     def update_color_in_recipes(self, old_color_id: int, new_code: str) -> bool:
         """تحديث الألوان في الوصفات عند تغيير كود اللون"""
+        conn = None
         try:
-            conn = self.get_connection()
+            conn = self.db.get_connection()
             cursor = conn.cursor()
             
             # الحصول على ID اللون الجديد
@@ -144,11 +145,15 @@ class ColorManager:
             return False
         except Exception:
             return False
+        finally:
+            if conn:
+                conn.close()
 
     def delete_color(self, color_id: int) -> bool:
         """حذف لون من قاعدة البيانات"""
+        conn = None
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.db.get_connection()
             cursor = conn.cursor()
 
             # التحقق أولاً من وجود اللون
@@ -171,11 +176,15 @@ class ColorManager:
 
         except Exception:
             return False
+        finally:
+            if conn:
+                conn.close()
 
     def get_color_by_id(self, color_id):
         """الحصول على لون بواسطة ID"""
+        conn = None
         try:
-            conn = self.db.get_connection()  # استخدم self.db.get_connection()
+            conn = self.db.get_connection()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -186,7 +195,6 @@ class ColorManager:
 
             row = cursor.fetchone()
             if row:
-                from app.models import Color  # استيراد Color
                 return Color(
                     id=row[0],
                     code=row[1],
@@ -274,16 +282,28 @@ class ColorManager:
 
 class DatabaseManager:
     """مدير قاعدة البيانات"""
-
-    def __init__(self, db_file: str = None):
+    
+    def __init__(self, db_file=None):
+        """تهيئة مدير قاعدة البيانات"""
         self.db_file = db_file or DATABASE_FILE
         self.ensure_database_exists()
         self.color_manager = ColorManager(self)
+
+    def get_connection(self):
+        """الحصول على اتصال بقاعدة البيانات"""
+        conn = sqlite3.connect(self.db_file)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
 
     def ensure_database_exists(self):
         """التأكد من وجود قاعدة البيانات والجداول"""
         conn = None
         try:
+            # التأكد من وجود المجلد
+            db_dir = os.path.dirname(self.db_file)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+            
             conn = self.get_connection()
             cursor = conn.cursor()
 
@@ -347,27 +367,6 @@ class DatabaseManager:
             except sqlite3.OperationalError:
                 pass  # العمود موجود بالفعل
 
-            # تحديث جدول colors بالأعمدة الجديدة لتجنب أخطاء التشغيل
-            try:
-                cursor.execute('ALTER TABLE colors ADD COLUMN supplier TEXT')
-            except sqlite3.OperationalError:
-                pass
-
-            try:
-                cursor.execute('ALTER TABLE colors ADD COLUMN price_kg REAL DEFAULT 0.0')
-            except sqlite3.OperationalError:
-                pass
-
-            try:
-                cursor.execute('ALTER TABLE colors ADD COLUMN resa_percent REAL DEFAULT 0.0')
-            except sqlite3.OperationalError:
-                pass
-
-            try:
-                cursor.execute('ALTER TABLE colors ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
-            except sqlite3.OperationalError:
-                pass
-
             try:
                 cursor.execute('ALTER TABLE recipes ADD COLUMN total_percentage REAL DEFAULT 0.0')
             except sqlite3.OperationalError:
@@ -385,17 +384,6 @@ class DatabaseManager:
         finally:
             if conn:
                 conn.close()
-
-    def get_connection(self):
-        """الحصول على اتصال بقاعدة البيانات"""
-        conn = sqlite3.connect(self.db_file)
-        # تفعيل قيود المفاتيح الأجنبية
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
-
-    def initialize_database(self):
-        """تهيئة قاعدة البيانات (للمرة الأولى)"""
-        return self.ensure_database_exists()
 
     def _create_indexes(self, cursor):
         """إنشاء الفهارس لتحسين الأداء"""
@@ -416,10 +404,14 @@ class DatabaseManager:
             except sqlite3.OperationalError:
                 pass  # الفهرس موجود بالفعل
 
+    def initialize_database(self):
+        """تهيئة قاعدة البيانات (للمرة الأولى)"""
+        self.ensure_database_exists()
+
     # ============ دوال الألوان ============
 
     def add_color(self, color: Color) -> int:
-        """إضافة لون جديد - إصلاح"""
+        """إضافة لون جديد"""
         conn = None
         try:
             conn = self.get_connection()
@@ -438,7 +430,7 @@ class DatabaseManager:
 
             conn.commit()
             color_id = cursor.lastrowid
-            return color_id  # تأكد من return القيمة
+            return color_id
 
         except sqlite3.IntegrityError as e:
             if conn:
@@ -523,7 +515,6 @@ class DatabaseManager:
         """دالة مساعدة لإنشاء كائن Color من صف قاعدة البيانات"""
         color_dict = dict(zip(columns, row))
         return Color(
-            id=color_dict.get('id', 0),
             code=color_dict.get('code', ''),
             name=color_dict.get('name', ''),
             dye_type=color_dict.get('dye_type', ''),
@@ -536,6 +527,7 @@ class DatabaseManager:
 
     def get_color_by_id(self, color_id):
         """الحصول على لون بواسطة ID"""
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
@@ -555,7 +547,6 @@ class DatabaseManager:
 
             row = cursor.fetchone()
             if row:
-                from app.models import Color  # تأكد من استيراد Color
                 return Color(
                     id=row[0],
                     code=row[1],
@@ -565,7 +556,7 @@ class DatabaseManager:
                     price_kg=row[5],
                     resa_percent=row[6],
                     created_at=row[7],
-                    updated_at=row[7]  # استخدم created_at كقيمة مؤقتة إذا لم يكن updated_at موجوداً
+                    updated_at=row[7]
                 )
             return None
 
@@ -600,6 +591,7 @@ class DatabaseManager:
 
     def get_all_colors(self):
         """الحصول على جميع الألوان"""
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
@@ -620,15 +612,14 @@ class DatabaseManager:
 
             colors = []
             for row in cursor.fetchall():
-                from app.models import Color
                 color = Color(
                     id=row[0],
                     code=row[1],
                     name=row[2],
                     dye_type=row[3],
-                    supplier=row[4],  # تأكد من وجود هذا العمود
+                    supplier=row[4],
                     price_kg=row[5],
-                    resa_percent=row[6],  # تأكد من وجود هذا العمود
+                    resa_percent=row[6],
                     created_at=row[7],
                     updated_at=row[8]
                 )
@@ -639,7 +630,8 @@ class DatabaseManager:
         except sqlite3.Error as e:
             raise Exception(f"Error in get_all_colors: {str(e)}")
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     def search_colors(self, code_filter: str = "", name_filter: str = "",
                       type_filter: str = "") -> List[Color]:
@@ -882,23 +874,23 @@ class DatabaseManager:
 
     def get_recipe_details(self, recipe_id: int) -> dict:
         """الحصول على تفاصيل الوصفة مع ألوانها"""
+        conn = None
         try:
-            conn = sqlite3.connect(self.db_file)
-            conn.row_factory = sqlite3.Row  # للحصول على أعمدة بأسماء
+            conn = self.get_connection()
             cursor = conn.cursor()
 
-            # ✅ الإصلاح: استبدال # بـ --
+            # الحصول على معلومات الوصفة
             cursor.execute("""
-                           SELECT rc.id,
-                                  rc.recipe_code,
-                                  rc.name,
-                                  rc.created_at,
-                                  -- حساب عدد الألوان
-                                  (SELECT COUNT(*) FROM recipe_colors WHERE recipe_id = rc.id)        as colors_count,
-                                  -- حساب النسبة المئوية الكلية
-                                  (SELECT SUM(percentage) FROM recipe_colors WHERE recipe_id = rc.id) as total_percentage
-                           FROM recipes rc
-                           WHERE rc.id = ?
+                           SELECT id,
+                                  recipe_code,
+                                  name,
+                                  created_at,
+                                  -- عدد الألوان
+                                  (SELECT COUNT(*) FROM recipe_colors WHERE recipe_id = id)        as colors_count,
+                                  -- إجمالي النسبة المئوية للألوان
+                                  (SELECT SUM(percentage) FROM recipe_colors WHERE recipe_id = id) as total_percentage
+                           FROM recipes
+                           WHERE id = ?
                            """, (recipe_id,))
 
             recipe_row = cursor.fetchone()
@@ -908,7 +900,14 @@ class DatabaseManager:
                 return None
 
             # تحويل الصف إلى قاموس
-            recipe_dict = dict(recipe_row)
+            recipe_dict = {
+                'id': recipe_row[0],
+                'recipe_code': recipe_row[1],
+                'name': recipe_row[2],
+                'created_at': recipe_row[3],
+                'colors_count': recipe_row[4],
+                'total_percentage': recipe_row[5]
+            }
 
             # الحصول على ألوان الوصفة
             cursor.execute("""
@@ -930,22 +929,22 @@ class DatabaseManager:
             total_cost = 0.0
 
             for row in cursor.fetchall():
-                color_data = dict(row)
+                color_data = {
+                    'id': row[0],
+                    'code': row[1],
+                    'name': row[2],
+                    'dye_type': row[3],
+                    'supplier': row[4],
+                    'price_kg': row[5],
+                    'resa_percent': row[6],
+                    'percentage': row[7]
+                }
 
                 # حساب تكلفة هذا اللون في الوصفة
                 color_cost = (color_data['percentage'] / 100) * color_data.get('price_kg', 0)
                 total_cost += color_cost
 
-                colors.append({
-                    'id': color_data['id'],
-                    'code': color_data['code'],
-                    'name': color_data['name'],
-                    'dye_type': color_data['dye_type'],
-                    'supplier': color_data['supplier'],
-                    'price_kg': color_data.get('price_kg', 0),
-                    'resa_percent': color_data.get('resa_percent', 0),
-                    'percentage': color_data['percentage']
-                })
+                colors.append(color_data)
 
             # إضافة التكلفة الإجمالية
             recipe_dict['total_cost'] = total_cost
@@ -959,8 +958,7 @@ class DatabaseManager:
 
             chemicals = []
             for row in cursor.fetchall():
-                chem_row = dict(row)
-                from app.models import Chemical
+                chem_row = {'code': row[0], 'name': row[1], 'quantity': row[2], 'unit': row[3]}
                 chemicals.append(Chemical(
                     code=chem_row['code'],
                     name=chem_row['name'],
@@ -1000,6 +998,9 @@ class DatabaseManager:
 
         except Exception as e:
             raise Exception(f"Database error: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
 
     def delete_recipe(self, recipe_id: int) -> bool:
         """حذف ريتشت"""
@@ -1222,18 +1223,22 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
-    def backup_database(self) -> str:
+    def backup_database(self, once_per_day: bool = False) -> Optional[str]:
         """إنشاء نسخة احتياطية من قاعدة البيانات"""
-        import shutil
-        from datetime import datetime
-        
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            day_stamp = datetime.now().strftime("%Y%m%d")
             backup_dir = BACKUP_DIR
             
             # التأكد من وجود مجلد النسخ الاحتياطية
             if not os.path.exists(backup_dir):
                 os.makedirs(backup_dir, exist_ok=True)
+
+            if once_per_day:
+                daily_prefix = f"ColorChem_Backup_{day_stamp}_"
+                for name in os.listdir(backup_dir):
+                    if name.startswith(daily_prefix) and name.endswith(".db"):
+                        return None
             
             # اسم ملف النسخة الاحتياطية
             backup_file = os.path.join(backup_dir, f"ColorChem_Backup_{timestamp}.db")
@@ -1250,9 +1255,8 @@ class DatabaseManager:
 
     def get_colors_paginated(self, page: int = 1, per_page: int = 10) -> Dict:
         """الحصول على الألوان بصيغة مقسمة (Pagination)"""
-        from app.cache import PaginationHelper
-        
         try:
+            from app.cache import PaginationHelper
             all_colors = self.get_all_colors()
             return PaginationHelper.paginate(all_colors, page, per_page)
         except Exception as e:
@@ -1260,9 +1264,8 @@ class DatabaseManager:
 
     def get_recipes_paginated(self, page: int = 1, per_page: int = 10) -> Dict:
         """الحصول على الوصفات بصيغة مقسمة"""
-        from app.cache import PaginationHelper
-        
         try:
+            from app.cache import PaginationHelper
             all_recipes = self.get_all_recipes()
             return PaginationHelper.paginate(all_recipes, page, per_page)
         except Exception as e:
@@ -1281,19 +1284,6 @@ class DatabaseManager:
                              per_page: int = 10) -> Dict:
         """
         بحث متقدم عن الألوان مع عدة فلاتر
-        
-        Args:
-            code: كود اللون (جزئي)
-            name: اسم اللون (جزئي)
-            dye_type: نوع الصباغة
-            supplier: المورد
-            price_min: الحد الأدنى للسعر
-            price_max: الحد الأقصى للسعر
-            page: رقم الصفحة
-            per_page: عدد العناصر في الصفحة
-        
-        Returns:
-            قاموس يحتوي على النتائج والصفحات
         """
         from app.cache import PaginationHelper
         conn = None
@@ -1445,15 +1435,40 @@ class DatabaseManager:
 
     def get_cache_stats(self) -> Dict:
         """الحصول على إحصائيات الـ Cache"""
-        from app.cache import cache_manager
-        return cache_manager.get_stats()
+        return {}
 
     def clear_cache(self):
         """مسح الـ Cache"""
-        from app.cache import cache_manager
-        cache_manager.clear()
+        pass
 
     def cleanup_expired_cache(self):
         """تنظيف عناصر الـ Cache المنتهية الصلاحية"""
-        from app.cache import cache_manager
-        cache_manager.cleanup_expired()
+        pass
+
+
+class Chemical:
+    """نموذج الكيماويات"""
+    def __init__(self, code: str = "", name: str = "", quantity: float = 0.0, unit: str = ""):
+        self.code = code
+        self.name = name
+        self.quantity = quantity
+        self.unit = unit
+
+
+class PaginationHelper:
+    """مساعد التقسيم على صفحات"""
+    
+    @staticmethod
+    def paginate(items: List, page: int = 1, per_page: int = 10) -> Dict:
+        """تقسيم العناصر على صفحات"""
+        total = len(items)
+        start = (page - 1) * per_page
+        end = start + per_page
+        
+        return {
+            'items': items[start:end],
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total + per_page - 1) // per_page
+        }

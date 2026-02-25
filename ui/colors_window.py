@@ -65,11 +65,7 @@ class ColorsWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.state('zoomed') # فتحها مكبرة افتراضياً
-
-        # التأكد من أن النافذة تظهر فوق النافذة الأم
-        self.window.transient(parent)
-        self.window.grab_set()
+        self.window.minsize(900, 580)
 
         # متغيرات الحقول
         self.code_var = tk.StringVar()
@@ -653,4 +649,3 @@ class ColorsWindow:
         """
 
         messagebox.showinfo("Help", help_text, parent=self.window)
-
