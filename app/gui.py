@@ -236,10 +236,6 @@ class ColorChemSystemGUI:
                 )
                 self.root.after(200, self.root.destroy)
 
-    def test_button_click(self):
-        """Test button click handler - shows a message box."""
-        messagebox.showinfo("Test Button", "Test button clicked!")
-
     def check_for_updates_silent(self):
         """التحقق من وجود تحديثات تلقائياً عند بدء التشغيل"""
         try:
@@ -430,12 +426,9 @@ Developer: Bibo Marcos
 
 
         # الأزرار الأصلية
-        ttk.Button(toolbar_frame, text="⟳ Refresh List", command=self.load_data, style="App.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar_frame, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar_frame, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar_frame, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="🧹 Clear Fields", command=self.clear_fields, style="App.TButton").pack(side=tk.LEFT, padx=5)
-
         # زر Backup
         ttk.Button(toolbar_frame, text="🗄 Backup DB",
                    command=self.backup_database, style="Data.TButton").pack(side=tk.LEFT, padx=5)
@@ -532,6 +525,7 @@ Developer: Bibo Marcos
         ttk.Button(control_frame, text="✏ Modify Color", command=self.modify_color, style="App.TButton").grid(row=0, column=1, padx=5)
         ttk.Button(control_frame, text="🗑 Delete Color", command=self.delete_color, style="App.TButton").grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="🧹 Clear Fields", command=self.clear_fields, style="App.TButton").grid(row=0, column=3, padx=5)
+        ttk.Button(control_frame, text="⟳ Refresh List", command=self.load_data, style="App.TButton").grid(row=0, column=4, padx=5)
 
     def setup_table(self):
         """إعداد الجدول"""
