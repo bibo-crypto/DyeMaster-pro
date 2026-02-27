@@ -14,6 +14,17 @@ from app.utils import get_current_timestamp
 from app.config import DYE_TYPES
 
 
+def _show_on_top(window, parent):
+    """Ensure new windows open above their parent."""
+    try:
+        window.lift()
+        window.focus_force()
+        window.attributes("-topmost", True)
+        window.after(250, lambda: window.attributes("-topmost", False))
+    except Exception:
+        pass
+
+
 class _AddMissingColorsWindow:
     def __init__(self, parent, db: DatabaseManager, missing_colors: List[Dict], on_success_callback):
         self.parent = parent
@@ -22,8 +33,23 @@ class _AddMissingColorsWindow:
         self.on_success_callback = on_success_callback
 
         self.window = tk.Toplevel(parent)
+        # Keep this dialog attached to the PDF import window so it always
+        # appears above it.
+        try:
+            self.window.transient(parent)
+        except Exception:
+            pass
+        _show_on_top(self.window, parent)
+        # Re-assert z-order after first paint to avoid being sent behind parent
+        # on some Windows window-manager timing cases.
+        self.window.after_idle(lambda: _show_on_top(self.window, parent))
+        try:
+            self.window.grab_set()
+        except Exception:
+            pass
         self.window.title("Register New Colors")
-        self.window.geometry("600x400")
+        self.window.geometry("900x600")
+        self.window.minsize(900, 600)
         self.window.configure(bg="#f0f0f0")
         # Keep this as a normal top-level window (with full title-bar controls).
 
@@ -36,19 +62,32 @@ class _AddMissingColorsWindow:
         """تكوين أنماط الواجهة"""
         style = ttk.Style(self.window)
         style.configure('Sub.TButton',
-                        font=('Arial', 10, 'bold'),
-                        padding=6,
+                        font=('Arial', 11, 'bold'),
+                        padding=10,
                         background='#3498DB',
                         foreground='white')
         style.map('Sub.TButton',
                   background=[('active', '#2980B9')])
+        style.configure('MissingTitle.TLabel', font=('Arial', 13, 'bold'))
+        style.configure('MissingNote.TLabel', font=('Arial', 11))
+        style.configure('MissingField.TLabel', font=('Arial', 11, 'bold'))
+        style.configure('Missing.TEntry', font=('Arial', 11))
+        style.configure('Missing.TCombobox', font=('Arial', 11))
 
     def setup_ui(self):
-        main_frame = ttk.Frame(self.window, padding=10)
+        main_frame = ttk.Frame(self.window, padding=18)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main_frame, text="The following colors are not in the database.", font=('Arial', 10, 'bold')).pack(pady=5)
-        ttk.Label(main_frame, text="Please provide a name for each new color.").pack(pady=5)
+        ttk.Label(
+            main_frame,
+            text="The following colors are not in the database.",
+            style='MissingTitle.TLabel'
+        ).pack(pady=(4, 8))
+        ttk.Label(
+            main_frame,
+            text="Please provide a name and dye type for each new color.",
+            style='MissingNote.TLabel'
+        ).pack(pady=(0, 12))
 
         canvas = tk.Canvas(main_frame)
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
@@ -65,30 +104,43 @@ class _AddMissingColorsWindow:
         canvas.configure(yscrollcommand=scrollbar.set)
 
         for i, color_info in enumerate(self.missing_colors):
-            row_frame = ttk.Frame(scrollable_frame, padding=5)
+            row_frame = ttk.Frame(scrollable_frame, padding=8)
             row_frame.pack(fill=tk.X, expand=True)
+            row_frame.columnconfigure(1, weight=1)
+            row_frame.columnconfigure(3, weight=1)
 
-            ttk.Label(row_frame, text=f"Code: {color_info['code']}").grid(row=0, column=0, padx=5, sticky=tk.W)
+            ttk.Label(
+                row_frame,
+                text=f"Code: {color_info['code']}",
+                style='MissingField.TLabel'
+            ).grid(row=0, column=0, padx=8, sticky=tk.W)
 
             name_var = tk.StringVar(value=color_info.get('name', ''))
-            name_entry = ttk.Entry(row_frame, textvariable=name_var, width=25)
-            name_entry.grid(row=0, column=1, padx=5)
+            name_entry = ttk.Entry(row_frame, textvariable=name_var, width=42, style='Missing.TEntry')
+            name_entry.grid(row=0, column=1, padx=8, sticky=tk.EW)
 
-            ttk.Label(row_frame, text="Dye Type:").grid(row=0, column=2, padx=5, sticky=tk.W)
+            ttk.Label(row_frame, text="Dye Type:", style='MissingField.TLabel').grid(row=0, column=2, padx=8, sticky=tk.W)
             dye_type_var = tk.StringVar(value='GENERAL')
-            dye_type_combo = ttk.Combobox(row_frame, textvariable=dye_type_var, values=DYE_TYPES, state='readonly', width=15)
-            dye_type_combo.grid(row=0, column=3, padx=5)
+            dye_type_combo = ttk.Combobox(
+                row_frame,
+                textvariable=dye_type_var,
+                values=DYE_TYPES,
+                state='readonly',
+                width=26,
+                style='Missing.TCombobox'
+            )
+            dye_type_combo.grid(row=0, column=3, padx=8, sticky=tk.EW)
 
             self.color_entries.append({'code': color_info['code'], 'name_var': name_var, 'dye_type_var': dye_type_var})
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        btn_frame = ttk.Frame(self.window, padding=10)
+        btn_frame = ttk.Frame(self.window, padding=14)
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
         
-        ttk.Button(btn_frame, text="Save New Colors", command=self.save_new_colors, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=self.window.destroy, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Save New Colors", command=self.save_new_colors, style='Sub.TButton').pack(side=tk.LEFT, padx=8, ipadx=8, ipady=2)
+        ttk.Button(btn_frame, text="Cancel", command=self.window.destroy, style='Sub.TButton').pack(side=tk.RIGHT, padx=8, ipadx=8, ipady=2)
 
     def save_new_colors(self):
         colors_to_add = []
@@ -148,6 +200,7 @@ class PDFImportWindow:
         self.chemicals = []
 
         self.window = tk.Toplevel(parent)
+        _show_on_top(self.window, parent)
         self.window.title("Import Recipe from PDF")
         
         # ضبط أبعاد النافذة لتكون متجاوبة
@@ -202,7 +255,7 @@ class PDFImportWindow:
         file_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
     
-        ttk.Button(upload_frame, text="📤 Upload & Parse",
+        ttk.Button(upload_frame, text="Upload & Parse",
                    command=self.browse_pdf, width=15, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
         # إطار معلومات الوصفة (أكثر إحكاما)
@@ -307,38 +360,29 @@ class PDFImportWindow:
         button_row = ttk.Frame(control_frame)
         button_row.pack(fill=tk.X, pady=5)
 
-        #إبقاء النافذة دائماً في المقدمة
-        self.window.attributes('-topmost', True)
-
         # الأزرار بأحجام متساوية
-        ttk.Button(button_row, text="💾 Save Recipe",
+        ttk.Button(button_row, text="Save Recipe",
                    command=self.save_recipe, width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=2)
 
-        ttk.Button(button_row, text="📄 Export as PDF",
+        ttk.Button(button_row, text="Export as PDF",
                    command=self.export_pdf, width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=2)
 
-        self.register_colors_button = ttk.Button(button_row, text="🎨 Register Colors",
+        self.register_colors_button = ttk.Button(button_row, text="Register Colors",
                                                 command=self.register_missing_colors, width=20, style='Sub.TButton')
         self.register_colors_button.pack(side=tk.LEFT, padx=2)
         self.register_colors_button.pack_forget()  # Initially hidden
 
-        ttk.Button(button_row, text="✖ Close",
+        ttk.Button(button_row, text="Close",
                    command=self.window.destroy, width=20, style='Sub.TButton').pack(side=tk.RIGHT, padx=2)
 
     def browse_pdf(self):
         """تصفح واختيار ملف PDF"""
-        # تعطيل topmost مؤقتاً للسماح بظهور مربع الحوار
-        self.window.attributes('-topmost', False)
-        try:
-            file_path = filedialog.askopenfilename(
-                parent=self.window,
-                defaultextension=".pdf",
-                filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")]
-            )
-        finally:
-            # إعادة تفعيل topmost
-            self.window.attributes('-topmost', True)
-            self.window.lift()
+        file_path = filedialog.askopenfilename(
+            parent=self.window,
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")]
+        )
+        _show_on_top(self.window, self.parent)
 
         if file_path:
             self.file_path_var.set(file_path)

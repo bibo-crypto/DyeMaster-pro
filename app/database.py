@@ -3,12 +3,13 @@
 """
 import sqlite3
 import os
+import stat
 import shutil
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from app.utils import get_current_timestamp
 from app.config import DATABASE_FILE, BACKUP_DIR
-from app.models import Color, Recipe, RecipeColor, RecipeDetails
+from app.models import Color, Recipe, RecipeColor, RecipeDetails, Chemical
 
 
 class ColorManager:
@@ -157,12 +158,18 @@ class ColorManager:
             cursor = conn.cursor()
 
             # التحقق أولاً من وجود اللون
-            cursor.execute("SELECT COUNT(*) FROM colors WHERE id = ?", (color_id,))
-            count = cursor.fetchone()[0]
-
-            if count == 0:
+            cursor.execute("SELECT code FROM colors WHERE id = ?", (color_id,))
+            row = cursor.fetchone()
+            if not row:
                 conn.close()
                 return True  # نعتبره ناجحاً لأنه غير موجود أصلاً
+
+            color_code = row[0]
+
+            # التحقق من استخدام اللون في الوصفات
+            if self.is_color_in_use(color_code):
+                conn.close()
+                return False  # لا يمكن الحذف إذا كان اللون مستخدماً
 
             # حذف ارتباطات اللون في الوصفات أولاً لتجنب السجلات اليتيمة
             cursor.execute("DELETE FROM recipe_colors WHERE color_id = ?", (color_id,))
@@ -233,7 +240,9 @@ class ColorManager:
     def is_color_in_use(self, color_code: str) -> bool:
         """التحقق من استخدام اللون في ريتشتات"""
         try:
-            color = self.db.get_color_by_code(color_code)
+            from app.utils import clean_color_code
+            normalized_code = clean_color_code(color_code)
+            color = self.db.get_color_by_code(normalized_code)
             if not color:
                 return False
 
@@ -253,7 +262,9 @@ class ColorManager:
     def get_recipes_using_color(self, color_code: str) -> List[Recipe]:
         """الحصول على جميع الريتشتات التي تستخدم هذا اللون"""
         try:
-            color = self.db.get_color_by_code(color_code)
+            from app.utils import clean_color_code
+            normalized_code = clean_color_code(color_code)
+            color = self.db.get_color_by_code(normalized_code)
             if not color:
                 return []
 
@@ -289,11 +300,35 @@ class DatabaseManager:
         self.ensure_database_exists()
         self.color_manager = ColorManager(self)
 
+    def _ensure_db_writable(self):
+        """Attempt to clear read-only flags on DB path and parent directory."""
+        db_dir = os.path.dirname(self.db_file)
+        if db_dir and os.path.exists(db_dir):
+            try:
+                os.chmod(db_dir, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+            except Exception:
+                pass
+
+        if os.path.exists(self.db_file):
+            try:
+                os.chmod(self.db_file, stat.S_IREAD | stat.S_IWRITE)
+            except Exception:
+                pass
+
     def get_connection(self):
         """الحصول على اتصال بقاعدة البيانات"""
-        conn = sqlite3.connect(self.db_file)
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        self._ensure_db_writable()
+        try:
+            conn = sqlite3.connect(self.db_file)
+            conn.execute("PRAGMA foreign_keys = ON")
+            return conn
+        except sqlite3.OperationalError as e:
+            if "readonly" in str(e).lower():
+                self._ensure_db_writable()
+                conn = sqlite3.connect(self.db_file)
+                conn.execute("PRAGMA foreign_keys = ON")
+                return conn
+            raise
 
     def ensure_database_exists(self):
         """التأكد من وجود قاعدة البيانات والجداول"""
@@ -478,6 +513,18 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
+            # الحصول على اللون للتحقق من استخدامه
+            cursor.execute("SELECT code FROM colors WHERE id = ?", (color_id,))
+            row = cursor.fetchone()
+            if not row:
+                return True  # اللون غير موجود، نعتبره محذوفاً
+
+            color_code = row[0]
+
+            # التحقق من استخدام اللون في الوصفات
+            if self.color_manager.is_color_in_use(color_code):
+                return False  # لا يمكن الحذف إذا كان اللون مستخدماً
+
             # First, delete references in recipe_colors to avoid orphan records
             cursor.execute('DELETE FROM recipe_colors WHERE color_id = ?', (color_id,))
 
@@ -515,6 +562,7 @@ class DatabaseManager:
         """دالة مساعدة لإنشاء كائن Color من صف قاعدة البيانات"""
         color_dict = dict(zip(columns, row))
         return Color(
+            id=color_dict.get('id', 0),
             code=color_dict.get('code', ''),
             name=color_dict.get('name', ''),
             dye_type=color_dict.get('dye_type', ''),
@@ -570,10 +618,24 @@ class DatabaseManager:
         """الحصول على لون بواسطة الكود"""
         conn = None
         try:
+            from app.utils import clean_color_code
+            raw_code = str(color_code).strip() if color_code is not None else ""
+            normalized_code = clean_color_code(color_code)
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('SELECT * FROM colors WHERE code = ?', (color_code,))
+            cursor.execute(
+                '''
+                SELECT * FROM colors
+                WHERE code = ?
+                   OR code = ?
+                   OR LOWER(code) = LOWER(?)
+                   OR LOWER(code) = LOWER(?)
+                LIMIT 1
+                ''',
+                (raw_code, normalized_code, raw_code, normalized_code)
+            )
             row = cursor.fetchone()
 
             if row:
@@ -846,7 +908,9 @@ class DatabaseManager:
         
         # Fallback for safety, though it duplicates logic from ColorManager
         try:
-            color = self.get_color_by_code(color_code)
+            from app.utils import clean_color_code
+            normalized_code = clean_color_code(color_code)
+            color = self.get_color_by_code(normalized_code)
             if not color:
                 return []
 
@@ -906,7 +970,7 @@ class DatabaseManager:
                 'name': recipe_row[2],
                 'created_at': recipe_row[3],
                 'colors_count': recipe_row[4],
-                'total_percentage': recipe_row[5]
+                'total_percentage': recipe_row[5] if recipe_row[5] is not None else 0.0
             }
 
             # الحصول على ألوان الوصفة
@@ -929,19 +993,21 @@ class DatabaseManager:
             total_cost = 0.0
 
             for row in cursor.fetchall():
+                price_kg = row[5] if row[5] is not None else 0.0
+                resa_percent = row[6] if row[6] is not None else 0.0
                 color_data = {
                     'id': row[0],
                     'code': row[1],
                     'name': row[2],
                     'dye_type': row[3],
                     'supplier': row[4],
-                    'price_kg': row[5],
-                    'resa_percent': row[6],
+                    'price_kg': price_kg,
+                    'resa_percent': resa_percent,
                     'percentage': row[7]
                 }
 
                 # حساب تكلفة هذا اللون في الوصفة
-                color_cost = (color_data['percentage'] / 100) * color_data.get('price_kg', 0)
+                color_cost = (color_data['percentage'] / 100) * price_kg
                 total_cost += color_cost
 
                 colors.append(color_data)
@@ -969,7 +1035,7 @@ class DatabaseManager:
             # إذا لم توجد كيماويات محفوظة (وصفات قديمة)، احسبها من جديد
             if not chemicals:
                 from app.calculator import ChemicalCalculator
-                total_percentage = recipe_dict.get('total_percentage', 0.0)
+                total_percentage = recipe_dict.get('total_percentage', 0.0) or 0.0
                 
                 # تحديد النوع المهيمن من الألوان
                 type_totals = {}
@@ -992,7 +1058,7 @@ class DatabaseManager:
                 'colors': colors,
                 'chemicals': chemicals,
                 'colors_count': recipe_dict.get('colors_count', 0),
-                'total_percentage': recipe_dict.get('total_percentage', 0.0),
+                'total_percentage': recipe_dict.get('total_percentage', 0.0) or 0.0,
                 'total_cost': total_cost
             }
 

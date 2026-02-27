@@ -278,9 +278,9 @@ Developer: Bibo Marcos
         self.configure_styles()
         
         if self.dark_mode:
-            self.dark_mode_button.config(text="Light")
+            self.dark_mode_button.config(text="☀ Light")
         else:
-            self.dark_mode_button.config(text="Dark")
+            self.dark_mode_button.config(text="🌙 Dark")
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
@@ -380,6 +380,15 @@ Developer: Bibo Marcos
         self.style.map('Test.TButton',
                        background=[('active', '#D84315')])
 
+        # Data buttons (Backup/Import)
+        self.style.configure('Data.TButton',
+                             font=('Arial', 10, 'bold'),
+                             foreground='white',
+                             background='#2F7D8C',
+                             padding=6)
+        self.style.map('Data.TButton',
+                       background=[('active', '#266773')])
+
         # نمط زر Accent - I'll keep it but it's not used
         self.style.configure('Accent.TButton',
                              font=('Arial', 10, 'bold'),
@@ -421,30 +430,25 @@ Developer: Bibo Marcos
 
 
         # الأزرار الأصلية
-        ttk.Button(toolbar_frame, text="Refresh List", command=self.load_data, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="Clear Fields", command=self.clear_fields, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="⟳ Refresh List", command=self.load_data, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="🧹 Clear Fields", command=self.clear_fields, style="App.TButton").pack(side=tk.LEFT, padx=5)
 
         # زر Backup
-        ttk.Button(toolbar_frame, text="Backup DB",
-                   command=self.backup_database, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="Import Data",
-                   command=self.import_data, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="Test Update",
-                   command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=5)
-        
-        # Test button for update verification
-        ttk.Button(toolbar_frame, text="Test",
-                   command=self.test_button_click, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="🗄 Backup DB",
+                   command=self.backup_database, style="Data.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar_frame, text="⬇ Import Data",
+                   command=self.import_data, style="Data.TButton").pack(side=tk.LEFT, padx=5)
 
-        # زر Statistics
-
-        ttk.Button(toolbar_frame, text="Import PDF",
+        ttk.Button(toolbar_frame, text="📄 Import PDF",
                    command=self.open_pdf_import, width=12, style='Import.TButton').pack(side=tk.LEFT, padx=5)
 
-        self.dark_mode_button = ttk.Button(toolbar_frame, text="Dark", command=self.toggle_dark_mode, width=6)
+        ttk.Button(toolbar_frame, text="⬆ CHECK UPDATE",
+                   command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=(28, 5))
+
+        self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙 Dark", command=self.toggle_dark_mode, width=10)
         self.dark_mode_button.pack(side=tk.RIGHT, padx=5)
 
 
@@ -476,8 +480,8 @@ Developer: Bibo Marcos
         self.search_supplier_entry.grid(row=0, column=5, padx=5)
         self.search_supplier_entry.bind('<Return>', lambda e: self.search_colors())
 
-        ttk.Button(search_frame, text="Search", command=self.search_colors, style="App.TButton").grid(row=0, column=6, padx=5)
-        ttk.Button(search_frame, text="Clear", command=self.clear_search, style="App.TButton").grid(row=0, column=7, padx=5)
+        ttk.Button(search_frame, text="🔍 Search", command=self.search_colors, style="App.TButton").grid(row=0, column=6, padx=5)
+        ttk.Button(search_frame, text="🧽 Clear", command=self.clear_search, style="App.TButton").grid(row=0, column=7, padx=5)
 
     def setup_input_frame(self):
         """إعداد إطار إدخال البيانات"""
@@ -524,10 +528,10 @@ Developer: Bibo Marcos
         control_frame = ttk.Frame(input_frame)
         control_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Button(control_frame, text="Add Color", command=self.add_color, style="App.TButton").grid(row=0, column=0, padx=5)
-        ttk.Button(control_frame, text="Modify Color", command=self.modify_color, style="App.TButton").grid(row=0, column=1, padx=5)
-        ttk.Button(control_frame, text="Delete Color", command=self.delete_color, style="App.TButton").grid(row=0, column=2, padx=5)
-        ttk.Button(control_frame, text="Clear Fields", command=self.clear_fields, style="App.TButton").grid(row=0, column=3, padx=5)
+        ttk.Button(control_frame, text="➕ Add Color", command=self.add_color, style="App.TButton").grid(row=0, column=0, padx=5)
+        ttk.Button(control_frame, text="✏ Modify Color", command=self.modify_color, style="App.TButton").grid(row=0, column=1, padx=5)
+        ttk.Button(control_frame, text="🗑 Delete Color", command=self.delete_color, style="App.TButton").grid(row=0, column=2, padx=5)
+        ttk.Button(control_frame, text="🧹 Clear Fields", command=self.clear_fields, style="App.TButton").grid(row=0, column=3, padx=5)
 
     def setup_table(self):
         """إعداد الجدول"""
@@ -543,6 +547,7 @@ Developer: Bibo Marcos
             ("resa_percent", "RESA %", 80),
             ("created_at", "Created", 120),
             ("updated_at", "Updated", 120),
+            ("status", "Status", 80),
             ]
         
 
@@ -583,7 +588,11 @@ Developer: Bibo Marcos
     # دوال التحقق
     def validate_code_input(self, action, value):
         """التحقق من صحة إدخال الكود"""
-        if action == '1':  # Insert
+        # Always allow delete/backspace operations.
+        if action == '0':
+            return True
+        # Insert/replace: code must be digits only and max 5 chars.
+        if value == "":
             return True
         return value.isdigit() and len(value) <= 5
 
@@ -598,6 +607,8 @@ Developer: Bibo Marcos
 
             # إضافة البيانات للجدول
             for color in colors:
+                recipes_using = self.db.get_recipes_using_color(color.code)
+                status = "Active" if recipes_using else ""
                 self.colors_table.insert("", tk.END, values=(
                     color.code,
                     color.name,
@@ -606,7 +617,8 @@ Developer: Bibo Marcos
                     format_currency(color.price_kg),
                     format_percentage(color.resa_percent),
                     color.created_at.split()[0] if color.created_at else "",
-                    color.updated_at.split()[0] if color.updated_at else ""
+                    color.updated_at.split()[0] if color.updated_at else "",
+                    status
                 ))
 
             self.status_bar.config(text=f"Loaded {len(colors)} colors")
@@ -651,6 +663,8 @@ Developer: Bibo Marcos
 
             # إضافة النتائج
             for color in filtered_colors:
+                recipes_using = self.db.get_recipes_using_color(color.code)
+                status = "Active" if recipes_using else ""
                 self.colors_table.insert("", tk.END, values=(
                     color.code,
                     color.name,
@@ -659,7 +673,8 @@ Developer: Bibo Marcos
                     format_currency(color.price_kg),
                     format_percentage(color.resa_percent),
                     color.created_at.split()[0],
-                    color.updated_at.split()[0] if color.updated_at else color.created_at.split()[0]
+                    color.updated_at.split()[0] if color.updated_at else color.created_at.split()[0],
+                    status
                 ))
 
             self.status_bar.config(text=f"Found {len(filtered_colors)} colors")
@@ -707,6 +722,9 @@ Developer: Bibo Marcos
 
             # تنظيف الكود
             cleaned_code = clean_color_code(code)
+            if not cleaned_code.isdigit() or len(cleaned_code) != 5:
+                messagebox.showwarning("Warning", "Color code must be exactly 5 digits")
+                return
 
             # الحصول على السعر والنسبة
             try:
@@ -765,16 +783,24 @@ Developer: Bibo Marcos
             messagebox.showwarning("Warning", "Please select a color to delete.")
             return
 
-        color_code = self.colors_table.item(selected_item[0], "values")[0]
+        raw_color_code = self.colors_table.item(selected_item[0], "values")[0]
+        color_code = clean_color_code(raw_color_code)
 
         try:
+            # Resolve the actual row first to avoid stale Treeview selections.
+            color_to_delete = self.db.get_color_by_code(color_code)
+            if not color_to_delete:
+                self.colors_table.delete(selected_item[0])
+                self.status_bar.config(text=f"Color '{raw_color_code}' was already removed")
+                return
+
             # Use the database manager to check for usage
-            recipes_using_color = self.db.get_recipes_using_color(color_code)
+            recipes_using_color = self.db.get_recipes_using_color(color_to_delete.code)
 
             if recipes_using_color:
                 # If the color is in use, prevent deletion and show the required error message.
                 error_message = (
-                    f"Forbidden: Color '{color_code}' cannot be deleted.\n\n"
+                    f"Forbidden: Color '{color_to_delete.code}' cannot be deleted.\n\n"
                     f"It is currently used in {len(recipes_using_color)} recipe(s). "
                     "Please see 'Colors in Use' for details."
                 )
@@ -784,26 +810,20 @@ Developer: Bibo Marcos
             # If not in use, proceed with deletion confirmation.
             confirm = messagebox.askyesno(
                 "Confirm Delete",
-                f"Are you sure you want to delete the color '{color_code}'?\n\n"
+                f"Are you sure you want to delete the color '{color_to_delete.code}'?\n\n"
                 "This action is irreversible."
             )
 
             if not confirm:
                 return
 
-            # Get the full color object to get the ID for deletion
-            color_to_delete = self.db.get_color_by_code(color_code)
-            if not color_to_delete:
-                messagebox.showerror("Error", f"Color '{color_code}' could not be found in the database.")
-                self.load_data() # Refresh list in case it was deleted by another process
-                return
-
             # Use the correct database manager method to delete by ID
             success = self.db.delete_color(color_to_delete.id)
 
             if success:
-                messagebox.showinfo("Success", f"Color '{color_code}' has been deleted successfully.")
-                self.load_data()  # Refresh the color list
+                self.colors_table.delete(selected_item[0])
+                messagebox.showinfo("Success", f"Color '{color_to_delete.code}' has been deleted successfully.")
+                self.load_data()  # Refresh full data and status values
                 self.clear_fields()
             else:
                 messagebox.showerror("Error", "An error occurred while deleting the color.")
@@ -875,6 +895,9 @@ Developer: Bibo Marcos
 
             # تنظيف الكود الجديد
             cleaned_new_code = clean_color_code(new_code)
+            if not cleaned_new_code.isdigit() or len(cleaned_new_code) != 5:
+                messagebox.showwarning("Warning", "Color code must be exactly 5 digits")
+                return
 
             # الحصول على السعر والنسبة
             try:

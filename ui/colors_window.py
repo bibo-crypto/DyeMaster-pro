@@ -24,6 +24,17 @@ except ImportError:
         from app.config import DYE_TYPES
 
 
+def _show_on_top(window, parent):
+    """Ensure new windows open above their parent."""
+    try:
+        window.lift()
+        window.focus_force()
+        window.attributes("-topmost", True)
+        window.after(250, lambda: window.attributes("-topmost", False))
+    except Exception:
+        pass
+
+
 class ColorsWindow:
     """نافذة إدارة الألوان"""
 
@@ -46,6 +57,7 @@ class ColorsWindow:
         self.is_new_color = color_code is None
 
         self.window = tk.Toplevel(parent)
+        _show_on_top(self.window, parent)
 
         if self.is_new_color:
             self.window.title("Add New Color - إضافة لون جديد")
@@ -214,7 +226,7 @@ class ColorsWindow:
         if not self.is_new_color:
             ttk.Button(
                 button_frame,
-                text="🗑️ Delete Color",
+                text="Delete Color",
                 command=self.delete_color,
                 width=15,
                 style='Sub.TButton'
@@ -223,7 +235,7 @@ class ColorsWindow:
         # زر الإلغاء
         ttk.Button(
             button_frame,
-            text="✖ Cancel",
+            text="Cancel",
             command=self.window.destroy,
             width=15,
             style='Sub.TButton'
@@ -232,7 +244,7 @@ class ColorsWindow:
         # زر المساعدة
         ttk.Button(
             button_frame,
-            text="❓ Help",
+            text="Help",
             command=self.show_help,
             width=15,
             style='Sub.TButton'
@@ -535,19 +547,19 @@ class ColorsWindow:
         button_frame.pack(pady=20)
 
         # Option 1: Cancel
-        ttk.Button(button_frame, text="❌ Cancel",
+        ttk.Button(button_frame, text="Cancel",
                   command=lambda: set_choice("cancel")).pack(side=tk.LEFT, padx=5)
 
         # Option 2: Delete recipes and color (if not too many recipes)
         if num_recipes <= 10:  # Safety limit
-            ttk.Button(button_frame, text="🗑️ Delete All Recipes & Color",
+            ttk.Button(button_frame, text="Delete All Recipes & Color",
                       command=lambda: set_choice("delete_recipes")).pack(side=tk.LEFT, padx=5)
         else:
             ttk.Label(button_frame, text="(Too many recipes to auto-delete)",
                      foreground="red").pack(side=tk.LEFT, padx=5)
 
         # Option 3: Manual management
-        ttk.Button(button_frame, text="🔧 Manage Manually",
+        ttk.Button(button_frame, text="Manage Manually",
                   command=lambda: set_choice("manage_manually")).pack(side=tk.LEFT, padx=5)
 
         dialog.wait_window()

@@ -1,12 +1,4 @@
 pyinstaller main.py --onefile --noconsole --paths=. --collect-all ColorChemSystem --icon=icon.ico --add-data "icon.ico;." --add-data "app;app" --add-data "ui;ui"
-......
-python -m PyInstaller --noconfirm --windowed --onefile `
-  --name main `
-  --icon .\icon.ico `
-  --add-data "app;app" `
-  --add-data "ui;ui" `
-  --add-data "icon.ico;." `
-  .\main.py
-......
+
 ولو sqlite عمل مشكلة:
 --hidden-import=sqlite3 --hidden-import=_sqlite3

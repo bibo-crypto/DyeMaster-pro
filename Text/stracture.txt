@@ -1,0 +1,34 @@
+ColorChemSystem/
+├── __init__.py
+├── main.py              # Main entry point
+├── main.spec            # PyInstaller spec file
+├── requirements.txt     # Dependencies (with PyInstaller)
+├── icon.ico             # Application icon
+├── version.txt          # Version info
+├── color_helper.py      # Color helper functions
+├── app/                # Application modules
+│   ├── __init__.py
+│   ├── gui.py
+│   ├── database.py
+│   ├── models.py
+│   ├── config.py
+│   ├── utils.py
+│   ├── calculator.py
+│   ├── validators.py
+│   ├── pdf_exporter.py
+│   ├── updater.py
+│   ├── tester.py
+│   ├── cache.py
+│   └── performance.py
+├── ui/                 # UI windows
+│   ├── __init__.py
+│   ├── colors_window.py
+│   ├── recipes_window.py
+│   ├── colors_in_use_window.py
+│   ├── recipe_creator_window.py
+│   ├── saved_recipes_window.py
+│   ├── pdf_import_window.py
+│   └── pdf_importer.py
+├── build.bat           # Double-click to build EXE
+├── Build-EXE.ps1       # PowerShell build script
+└── build_exe.py        # Python build script

@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import sqlite3
 import os
+import tempfile
 from datetime import datetime
 import sys
 import traceback
@@ -23,9 +24,21 @@ class SystemTester:
 
     def __init__(self, parent=None):
         self.parent = parent
-        self.db = DatabaseManager()
+        self.test_db_file = os.path.join(tempfile.gettempdir(), "colorchemsystem_test.db")
+        self._reset_test_database()
+        self.db = DatabaseManager(self.test_db_file)
         self.test_results = []
         self.errors = []
+
+    def _reset_test_database(self):
+        """Ensure tests run against a fresh writable DB, isolated from user data."""
+        for suffix in ("", "-wal", "-shm"):
+            test_file = f"{self.test_db_file}{suffix}"
+            if os.path.exists(test_file):
+                try:
+                    os.remove(test_file)
+                except Exception:
+                    pass
 
     def run_full_test_suite(self):
         """تشغيل جميع الاختبارات"""
@@ -630,9 +643,11 @@ class SystemTester:
                 cost=1.42
             )
 
-            # اختبار التصدير التلقائي (بدون نافذة اختيار مجلد)
-            import os
-            test_pdf_path = os.path.join(os.path.dirname(__file__), "test_export.pdf")
+            # اختبار التصدير التلقائي على مسار مؤقت قابل للكتابة
+            test_pdf_path = os.path.join(
+                tempfile.gettempdir(),
+                f"test_export_{int(datetime.now().timestamp())}.pdf"
+            )
 
             # حذف الملف إذا كان موجوداً
             if os.path.exists(test_pdf_path):

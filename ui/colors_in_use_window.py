@@ -26,6 +26,17 @@ except ImportError:
 from datetime import datetime
 
 
+def _show_on_top(window, parent):
+    """Ensure new windows open above their parent."""
+    try:
+        window.lift()
+        window.focus_force()
+        window.attributes("-topmost", True)
+        window.after(250, lambda: window.attributes("-topmost", False))
+    except Exception:
+        pass
+
+
 # ============================================
 # الدوال المساعدة
 # ============================================
@@ -104,6 +115,7 @@ class SimpleColorsWindow:
         self.dye_types = DYE_TYPES
 
         self.window = tk.Toplevel(parent)
+        _show_on_top(self.window, parent)
         self.window.title(f"✏️ Modify Color: {color_code}")
 
         # ✅ حجم أصغر وأكثر كفاءة
@@ -173,8 +185,11 @@ class SimpleColorsWindow:
             'updated_at': ''
         }
 
-    def validate_code_input(self, value):
+    def validate_code_input(self, action, value):
         """التحقق من صحة إدخال الكود"""
+        # Always allow delete/backspace operations.
+        if action == '0':
+            return True
         if value == '':
             return True
         return value.isdigit() and len(value) <= 5
@@ -210,7 +225,7 @@ class SimpleColorsWindow:
                                     width=30, font=('Arial', 9))
         self.code_entry.configure(
             validate='key',
-            validatecommand=(self.window.register(self.validate_code_input), '%P')
+            validatecommand=(self.window.register(self.validate_code_input), '%d', '%P')
         )
         self.code_entry.grid(row=row, column=1, padx=5, pady=3, sticky="w")
         row += 1
@@ -294,7 +309,7 @@ class SimpleColorsWindow:
         # ✅ زر الحفظ - واضح لكن مضغوط
         save_button = tk.Button(
             button_frame,
-            text="💾 Save",
+            text="Save",
             command=self.save_changes,
             font=('Arial', 10, 'bold'),
             bg='#28a745',
@@ -309,7 +324,7 @@ class SimpleColorsWindow:
         # ✅ زر الحذف
         delete_button = tk.Button(
             button_frame,
-            text="🗑️ Delete",
+            text="Delete",
             command=self.delete_color,
             font=('Arial', 10),
             bg='#dc3545',
@@ -324,7 +339,7 @@ class SimpleColorsWindow:
         # ✅ زر الإلغاء
         cancel_button = tk.Button(
             button_frame,
-            text="✖ Cancel",
+            text="Cancel",
             command=self.window.destroy,
             font=('Arial', 10),
             bg='#6c757d',
@@ -580,19 +595,19 @@ class SimpleColorsWindow:
         button_frame.pack(pady=20)
 
         # خيار 1: الإلغاء
-        ttk.Button(button_frame, text="❌ Cancel",
+        ttk.Button(button_frame, text="Cancel",
                   command=lambda: set_choice("cancel")).pack(side=tk.LEFT, padx=5)
 
         # خيار 2: حذف الوصفات واللون (إذا لم يكن عدد الوصفات كبيراً جداً)
         if num_recipes <= 10:  # حد أمان
-            ttk.Button(button_frame, text="🗑️ Delete All Recipes & Color",
+            ttk.Button(button_frame, text="Delete All Recipes & Color",
                       command=lambda: set_choice("delete_recipes")).pack(side=tk.LEFT, padx=5)
         else:
             ttk.Label(button_frame, text="(Too many recipes to auto-delete)",
                      foreground="red").pack(side=tk.LEFT, padx=5)
 
         # خيار 3: الإدارة اليدوية
-        ttk.Button(button_frame, text="🔧 Manage Manually",
+        ttk.Button(button_frame, text="Manage Manually",
                   command=lambda: set_choice("manage_manually")).pack(side=tk.LEFT, padx=5)
 
         dialog.wait_window()
@@ -687,6 +702,7 @@ class ColorsInUseWindow:
         self.db = db
 
         self.window = tk.Toplevel(parent)
+        _show_on_top(self.window, parent)
         self.window.title("Colors in Use - الألوان المستخدمة في الريتشتات")
         
         # ضبط أبعاد النافذة لتكون متجاوبة
@@ -769,11 +785,11 @@ class ColorsInUseWindow:
         self.search_name_entry.bind('<Return>', lambda e: self.perform_search())
 
         # زر البحث
-        ttk.Button(search_frame, text="🔍 Search",
+        ttk.Button(search_frame, text="Search",
                    command=self.perform_search, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=5)
 
         # زر إعادة الضبط
-        ttk.Button(search_frame, text="🔄 Reset",
+        ttk.Button(search_frame, text="Reset",
                    command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=5)
 
         # إطار قائمة الألوان المستخدمة
@@ -854,15 +870,15 @@ class ColorsInUseWindow:
         control_frame = ttk.Frame(self.window)
         control_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        ttk.Button(control_frame, text="✏️ Modify Color",
+        ttk.Button(control_frame, text="Modify Color",
                    command=self.modify_color, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="📄 Show Recipe",
+        ttk.Button(control_frame, text="Show Recipe",
                    command=self.show_recipe_details, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="🔄 Refresh",
+        ttk.Button(control_frame, text="Refresh",
                    command=self.refresh_window, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="📊 Export Report",
+        ttk.Button(control_frame, text="Export Report",
                    command=self.export_report, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="✖ Close",
+        ttk.Button(control_frame, text="Close",
                    command=self.window.destroy, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
         # شريط الحالة

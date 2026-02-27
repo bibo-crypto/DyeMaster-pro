@@ -11,6 +11,17 @@ from app.models import Recipe
 from app.database import DatabaseManager
 
 
+def _show_on_top(window, parent):
+    """Ensure new windows open above their parent."""
+    try:
+        window.lift()
+        window.focus_force()
+        window.attributes("-topmost", True)
+        window.after(250, lambda: window.attributes("-topmost", False))
+    except Exception:
+        pass
+
+
 class RecipesWindow:
     """نافذة الريتشتات - توافق كامل مع SavedRecipesWindow"""
 
@@ -21,6 +32,7 @@ class RecipesWindow:
 
         # إنشاء النافذة
         self.window = tk.Toplevel(parent)
+        _show_on_top(self.window, parent)
         self.window.title("Recipes - الريتشتات")
         
         # ضبط أبعاد النافذة لتكون متجاوبة
@@ -81,9 +93,9 @@ class RecipesWindow:
         search_name_entry.grid(row=0, column=3, padx=5, pady=5)
 
         # أزرار البحث
-        ttk.Button(search_frame, text="🔍 Search",
+        ttk.Button(search_frame, text="Search",
                    command=self.perform_search, width=10).grid(row=0, column=4, padx=5, pady=5)
-        ttk.Button(search_frame, text="🔄 Reset",
+        ttk.Button(search_frame, text="Reset",
                    command=self.reset_search, width=10).grid(row=0, column=5, padx=5, pady=5)
 
         # إطار قائمة الريتشتات
@@ -173,15 +185,15 @@ class RecipesWindow:
         control_frame = ttk.Frame(main_frame)
         control_frame.pack(fill=tk.X, pady=10)
 
-        ttk.Button(control_frame, text="📄 View Details",
+        ttk.Button(control_frame, text="View Details",
                    command=self.view_selected_recipe, width=15).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="✏️ Edit Recipe",
+        ttk.Button(control_frame, text="Edit Recipe",
                    command=self.edit_recipe, width=15).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="🗑️ Delete Recipe",
+        ttk.Button(control_frame, text="Delete Recipe",
                    command=self.delete_recipe, width=15).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="🔄 Refresh",
+        ttk.Button(control_frame, text="Refresh",
                    command=self.refresh_data, width=15).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="✖ Close",
+        ttk.Button(control_frame, text="Close",
                    command=self.window.destroy, width=15).pack(side=tk.LEFT, padx=5)
 
         # شريط الحالة

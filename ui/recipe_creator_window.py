@@ -13,6 +13,17 @@ from app.models import Recipe
 from app.config import DYE_TYPES
 
 
+def _show_on_top(window, parent):
+    """Ensure new windows open above their parent."""
+    try:
+        window.lift()
+        window.focus_force()
+        window.attributes("-topmost", True)
+        window.after(250, lambda: window.attributes("-topmost", False))
+    except Exception:
+        pass
+
+
 class RecipeCreatorWindow:
     """نافذة إنشاء وصفة جديدة"""
 
@@ -23,6 +34,7 @@ class RecipeCreatorWindow:
         self.reattivi_colors = []  # تخزين ألوان Reattivi (Caldi + Freddi + Other)
 
         self.window = tk.Toplevel(parent)
+        _show_on_top(self.window, parent)
         self.window.title("Create New Recipe")
         
         # ضبط أبعاد النافذة لتكون متجاوبة
@@ -120,9 +132,9 @@ class RecipeCreatorWindow:
         self.search_name_entry_ind.grid(row=0, column=3, padx=5, pady=3, sticky="w")
         self.search_name_entry_ind.bind('<Return>', lambda e: self.perform_search_ind())
 
-        ttk.Button(search_frame_ind, text="🔍 Search",
+        ttk.Button(search_frame_ind, text="Search",
                    command=self.perform_search_ind, width=12, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
-        ttk.Button(search_frame_ind, text="🔄 Reset",
+        ttk.Button(search_frame_ind, text="Reset",
                    command=self.reset_search_ind, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=3)
 
         # شجرة ألوان Indanthren
@@ -168,9 +180,9 @@ class RecipeCreatorWindow:
         self.search_name_entry_rea.grid(row=0, column=3, padx=5, pady=3, sticky="w")
         self.search_name_entry_rea.bind('<Return>', lambda e: self.perform_search_rea())
 
-        ttk.Button(search_frame_rea, text="🔍 Search",
+        ttk.Button(search_frame_rea, text="Search",
                    command=self.perform_search_rea, width=12, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
-        ttk.Button(search_frame_rea, text="🔄 Reset",
+        ttk.Button(search_frame_rea, text="Reset",
                    command=self.reset_search_rea, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=3)
 
         # شجرة ألوان Reattivi
@@ -285,23 +297,23 @@ class RecipeCreatorWindow:
         button_row = ttk.Frame(button_frame)
         button_row.pack(fill=tk.X, pady=5)
 
-        ttk.Button(button_row, text="💾 Save Recipe Only",
+        ttk.Button(button_row, text="Save Recipe Only",
                    command=self.save_recipe_only,
                    width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(button_row, text="📄 Save & Export PDF",
+        ttk.Button(button_row, text="Save & Export PDF",
                    command=self.save_and_export,
                    width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(button_row, text="🧪 Show Chemicals",
+        ttk.Button(button_row, text="Show Chemicals",
                    command=self.show_chemicals_details,
                    width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(button_row, text="🔄 Clear All Colors",
+        ttk.Button(button_row, text="Clear All Colors",
                    command=self.clear_all_colors,
                    width=18, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(button_row, text="✖ Close Window",
+        ttk.Button(button_row, text="Close Window",
                    command=self.window.destroy,
                    width=15, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
 
@@ -472,9 +484,9 @@ class RecipeCreatorWindow:
 
         # نافذة الإدخال
         input_win = tk.Toplevel(self.window)
+        _show_on_top(input_win, self.window)
         input_win.title(f"Add {color_data[0]}")
         input_win.geometry("300x150")
-        input_win.transient(self.window)
         input_win.grab_set()
 
         ttk.Label(input_win, text=f"Color: {color_data[0]} - {color_data[1]}",
@@ -875,10 +887,10 @@ class RecipeCreatorWindow:
         chemicals = ChemicalCalculator.calculate_chemicals(total_percentage, dominant_type)
 
         chem_win = tk.Toplevel(self.window)
+        _show_on_top(chem_win, self.window)
         chem_win.title("Chemical Requirements Details")
         chem_win.geometry("500x400")
         chem_win.configure(bg="#f0f0f0")
-        chem_win.transient(self.window)
         chem_win.grab_set()
 
         ttk.Label(chem_win, text="🧪 Detailed Chemical Requirements",
