@@ -1,7 +1,6 @@
 """
 نظام Cache لتحسين الأداء
 """
-import time
 from typing import Any, Dict, Optional, List, Callable
 from threading import Lock
 from datetime import datetime, timedelta

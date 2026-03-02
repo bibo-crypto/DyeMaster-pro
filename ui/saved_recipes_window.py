@@ -2,8 +2,8 @@
 Ù†Ø§ÙØ°Ø© Ø¹Ø±Ø¶ Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©
 """
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
-from typing import List, Optional
+from tkinter import ttk, messagebox
+from typing import Optional
 
 from app.database import DatabaseManager
 from app.pdf_exporter import PDFExporter

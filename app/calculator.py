@@ -1,9 +1,8 @@
 """
 حسابات الكيماويات والتكاليف
 """
-from typing import List, Tuple, Dict, Any
+from typing import List, Dict
 from app.models import Chemical, RecipeDetails
-from app.config import DYE_TYPES
 
 
 class ChemicalCalculator:

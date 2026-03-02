@@ -2,7 +2,6 @@
 مستورد PDF للوصفات المعملية (نسخة محسنة)
 """
 import re
-import os
 from typing import List, Dict
 import pdfplumber
 
@@ -66,7 +65,7 @@ class PDFRecipeImporter:
 
             # حساب النسبة الكلية
             if recipe_data['colors']:
-                total_percent = sum(color['percentage'] for color in recipe_data['colors'])
+                total_percent = sum(PDFRecipeImporter._to_float(color.get('percentage', 0.0)) for color in recipe_data['colors'])
                 recipe_data['total_percentage'] = total_percent
 
             return recipe_data
@@ -272,7 +271,7 @@ class PDFRecipeImporter:
 
             # حساب النسبة الكلية
             if colors:
-                total_percent = sum(color['percentage'] for color in colors)
+                total_percent = sum(PDFRecipeImporter._to_float(color.get('percentage', 0.0)) for color in colors)
                 recipe_data['total_percentage'] = total_percent
 
             return recipe_data
@@ -294,6 +293,15 @@ class PDFRecipeImporter:
             return 'INDANTHREN'
         else:
             return 'REATTIVI FREDDI'  # افتراضي
+
+    @staticmethod
+    def _to_float(value, default=0.0) -> float:
+        try:
+            if isinstance(value, str):
+                value = value.replace('%', '').replace(',', '.').strip()
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
     @staticmethod
     def match_colors_with_database(colors: List[Dict], db, fallback_dye_type: str = 'GENERAL') -> List[Dict]:

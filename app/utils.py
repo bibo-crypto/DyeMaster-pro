@@ -2,7 +2,7 @@
 دوال مساعدة
 """
 import math
-from typing import Any, Optional
+from typing import Any
 from datetime import datetime
 
 

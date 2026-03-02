@@ -4,9 +4,9 @@
 import tkinter as tk
 import sqlite3
 from tkinter import ttk, messagebox, filedialog
-from typing import Dict, List, Any
-from app.models import Recipe, Color
-from color_helper import fix_color_code, validate_color_data
+from typing import Dict, Any
+from app.models import Color
+from color_helper import fix_color_code
 
 # ✅ استيراد مباشر
 try:

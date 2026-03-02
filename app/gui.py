@@ -193,7 +193,7 @@ class ColorChemSystemGUI:
     def check_updates(self):
         """التحقق من التحديثات"""
         try:
-            is_update, version, notes, download_info = self.updater.get_latest_release()
+            is_update, version, notes, download_info = self.updater.check_for_updates()
             if is_update:
                 if messagebox.askyesno(
                     "Update Available",

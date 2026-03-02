@@ -2,6 +2,7 @@
 import os
 from datetime import datetime
 from tkinter import filedialog
+from app.lab_settings import load_lab_settings
 
 try:
     from reportlab.lib import colors
@@ -19,6 +20,8 @@ from app.models import RecipeDetails
 
 class PDFExporter:
     """Exports recipe data to PDF files."""
+    DEFAULT_LAB_VOLUME_ML = 150.0
+    DEFAULT_LAB_SAMPLE_G = 10.0
 
     @staticmethod
     def _ensure_reportlab(parent_window=None) -> bool:
@@ -54,12 +57,76 @@ class PDFExporter:
         return getattr(color, key, fallback)
 
     @staticmethod
-    def _chemical_row(chemical):
+    def _chemical_row(chemical, lab_volume_ml):
         code = getattr(chemical, "code", "")
         name = getattr(chemical, "name", "")
         qty = PDFExporter._to_float(getattr(chemical, "quantity", 0.0))
         unit = getattr(chemical, "unit", "")
-        return [str(code), str(name), f"{qty:.2f}", str(unit)]
+
+        # Lab conversion rules:
+        # - Convert per-liter values to the configured lab bath volume.
+        # - Applies to both ml/l and g/l
+        unit_lower = str(unit).strip().lower()
+        factor = lab_volume_ml / 1000.0
+        if "ml/l" in unit_lower:
+            lab_qty = qty * factor
+        elif "g/l" in unit_lower:
+            lab_qty = qty * factor
+        else:
+            lab_qty = qty * factor
+
+        lab_unit = PDFExporter._normalize_lab_unit(unit)
+        prod_text = f"{qty:.2f} {unit}".strip()
+        lab_text = f"{lab_qty:.2f} {lab_unit}".strip()
+        return [str(code), str(name), prod_text, lab_text]
+
+    @staticmethod
+    def _normalize_lab_unit(unit: str) -> str:
+        if not unit:
+            return ""
+        unit_str = str(unit).strip()
+        if "/" in unit_str:
+            return unit_str.split("/", 1)[0].strip()
+        return unit_str
+
+    @staticmethod
+    def _resolve_total_percentage(recipe_details: RecipeDetails) -> float:
+        total = PDFExporter._to_float(getattr(recipe_details, "total_percentage", 0.0), 0.0)
+        if total > 0:
+            return total
+
+        colors = getattr(recipe_details, "colors", []) or []
+        calculated_total = 0.0
+        for color in colors:
+            calculated_total += PDFExporter._to_float(PDFExporter._color_value(color, "percentage", 0.0), 0.0)
+        return calculated_total
+
+    @staticmethod
+    def _resolve_lab_params(recipe_details: RecipeDetails):
+        stored_defaults = load_lab_settings()
+        defaults = {
+            "sample_g": PDFExporter._to_float(stored_defaults.get("sample_g"), PDFExporter.DEFAULT_LAB_SAMPLE_G),
+            "volume_ml": PDFExporter._to_float(stored_defaults.get("volume_ml"), PDFExporter.DEFAULT_LAB_VOLUME_ML),
+        }
+        incoming = getattr(recipe_details, "lab_params", None)
+        if not isinstance(incoming, dict):
+            return defaults
+
+        sample_g = PDFExporter._to_float(incoming.get("sample_g", defaults["sample_g"]), defaults["sample_g"])
+        volume_ml = PDFExporter._to_float(incoming.get("volume_ml", defaults["volume_ml"]), defaults["volume_ml"])
+        if sample_g <= 0:
+            sample_g = defaults["sample_g"]
+        if volume_ml <= 0:
+            volume_ml = defaults["volume_ml"]
+        return {"sample_g": sample_g, "volume_ml": volume_ml}
+
+    @staticmethod
+    def _format_rapporto(sample_g: float, volume_ml: float) -> str:
+        ratio = volume_ml / sample_g if sample_g else 0.0
+        rounded = round(ratio)
+        if abs(ratio - rounded) < 1e-9:
+            return f"(1:{int(rounded)})"
+        return f"(1:{ratio:.2f})"
 
     @staticmethod
     def _build_single_recipe_elements(recipe_details: RecipeDetails, styles):
@@ -72,11 +139,20 @@ class PDFExporter:
         elements.append(Paragraph("Recipe Report", styles["Title"]))
         elements.append(Spacer(1, 12))
 
+        total_percentage = PDFExporter._resolve_total_percentage(recipe_details)
+        lab_params = PDFExporter._resolve_lab_params(recipe_details)
+        lab_sample_g = lab_params["sample_g"]
+        lab_volume_ml = lab_params["volume_ml"]
+        rapporto_bagno = PDFExporter._format_rapporto(lab_sample_g, lab_volume_ml)
+
         info_data = [
             ["Recipe Code", str(recipe_code)],
             ["Recipe Name", str(recipe_name)],
             ["Created At", str(created_at)],
-            ["Total Percentage", f"{PDFExporter._to_float(getattr(recipe_details, 'total_percentage', 0.0)):.2f}%"],
+            ["Peso", f"{lab_sample_g:.2f} g"],
+            ["Volume", f"{lab_volume_ml:.2f} ml"],
+            ["Rapporto Bagno", rapporto_bagno],
+            ["Total Percentage", f"{total_percentage:.2f}%"],
             ["Dominant Type", str(getattr(recipe_details, "dominant_type", ""))],
             ["Estimated Cost", f"EUR {PDFExporter._to_float(getattr(recipe_details, 'cost', 0.0)):.2f}"],
         ]
@@ -90,21 +166,19 @@ class PDFExporter:
         elements.append(info_table)
         elements.append(Spacer(1, 16))
 
-        colors_rows = [["Code", "Name", "Type", "Percentage", "Supplier", "Price/KG"]]
+        colors_rows = [["Code", "Name", "%/kg", "Lab Qty (ml)"]]
         for color in getattr(recipe_details, "colors", []) or []:
             color_code = PDFExporter._color_value(color, "code")
             color_name = PDFExporter._color_value(color, "name")
-            dye_type = PDFExporter._color_value(color, "dye_type")
             percentage = PDFExporter._to_float(PDFExporter._color_value(color, "percentage", 0.0))
-            supplier = PDFExporter._color_value(color, "supplier")
-            price = PDFExporter._to_float(PDFExporter._color_value(color, "price_kg", 0.0))
+            # Lab color quantity scales with sample weight.
+            # For 10 g sample: 0.8 -> 8 ml
+            lab_color_qty = percentage * lab_sample_g
             colors_rows.append([
                 str(color_code),
                 str(color_name),
-                str(dye_type),
-                f"{percentage:.2f}%",
-                str(supplier),
-                f"EUR {price:.2f}",
+                f"{percentage:.2f} %/kg",
+                f"{lab_color_qty:.2f} ml",
             ])
 
         elements.append(Paragraph("Colors", styles["Heading2"]))
@@ -119,9 +193,9 @@ class PDFExporter:
         elements.append(colors_table)
         elements.append(Spacer(1, 16))
 
-        chemicals_rows = [["Code", "Name", "Quantity", "Unit"]]
+        chemicals_rows = [["Code", "Name", "Production Qty", "Lab Qty"]]
         for chemical in getattr(recipe_details, "chemicals", []) or []:
-            chemicals_rows.append(PDFExporter._chemical_row(chemical))
+            chemicals_rows.append(PDFExporter._chemical_row(chemical, lab_volume_ml))
 
         elements.append(Paragraph("Chemicals", styles["Heading2"]))
         chemicals_table = Table(chemicals_rows, repeatRows=1)
@@ -134,6 +208,11 @@ class PDFExporter:
         ]))
         elements.append(chemicals_table)
         elements.append(Spacer(1, 12))
+        per_liter_factor = lab_volume_ml / 1000.0
+        elements.append(Paragraph(f"Lab basis: {lab_sample_g:.2f} g yarn, {lab_volume_ml:.2f} ml bath.", styles["Normal"]))
+        elements.append(Paragraph(f"Color lab: %/kg x {lab_sample_g:.2f} = ml.", styles["Normal"]))
+        elements.append(Paragraph(f"Chemicals lab: (value per liter) x {per_liter_factor:.4f}.", styles["Normal"]))
+        elements.append(Spacer(1, 8))
 
         generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         elements.append(Paragraph(f"Generated at: {generated}", styles["Normal"]))

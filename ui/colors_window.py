@@ -3,10 +3,9 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 import sqlite3
-from typing import Optional, List, Dict, Any
-from datetime import datetime
+from typing import Optional, Dict
 
 # استيراد النماذج
 try:

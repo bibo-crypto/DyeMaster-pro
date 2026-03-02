@@ -12,6 +12,7 @@ from app.pdf_exporter import PDFExporter
 from app.models import Recipe, Color
 from app.utils import get_current_timestamp
 from app.config import DYE_TYPES
+from app.lab_settings import load_lab_settings, save_lab_settings
 
 
 def _show_on_top(window, parent):
@@ -198,6 +199,10 @@ class PDFImportWindow:
         self.db = db
         self.imported_data = None
         self.chemicals = []
+        current_lab = load_lab_settings()
+        self.lab_peso_var = tk.StringVar(value=f"{current_lab['sample_g']:.2f}")
+        self.lab_volume_var = tk.StringVar(value=f"{current_lab['volume_ml']:.2f}")
+        self.lab_rapporto_var = tk.StringVar(value="")
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
@@ -220,6 +225,7 @@ class PDFImportWindow:
 
         self.configure_styles()
         self.setup_ui()
+        self.window.bind_all("<<LabSettingsChanged>>", self._on_lab_settings_changed)
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
@@ -291,6 +297,30 @@ class PDFImportWindow:
         self.total_percent_var = tk.StringVar()
         ttk.Label(info_grid, textvariable=self.total_percent_var,
                   font=('Arial', 9, 'bold'), foreground="green").grid(row=1, column=3, sticky=tk.W, pady=1, padx=5)
+
+        ttk.Label(info_grid, text="Peso (g):",
+                  font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=1, padx=2)
+        lab_peso_entry = ttk.Entry(info_grid, textvariable=self.lab_peso_var,
+                                   width=12, font=('Arial', 9))
+        lab_peso_entry.grid(row=2, column=1, sticky=tk.W, pady=1, padx=5)
+
+        ttk.Label(info_grid, text="Volume (ml):",
+                  font=('Arial', 9, 'bold')).grid(row=2, column=2, sticky=tk.W, pady=1, padx=10)
+        lab_volume_entry = ttk.Entry(info_grid, textvariable=self.lab_volume_var,
+                                     width=12, font=('Arial', 9))
+        lab_volume_entry.grid(row=2, column=3, sticky=tk.W, pady=1, padx=5)
+
+        ttk.Label(info_grid, text="Rapporto Bagno:",
+                  font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky=tk.W, pady=1, padx=2)
+        ttk.Entry(info_grid, textvariable=self.lab_rapporto_var,
+                  width=12, font=('Arial', 9), state='readonly').grid(row=3, column=1, sticky=tk.W, pady=1, padx=5)
+        ttk.Button(info_grid, text="Save Changes",
+                   command=self._save_lab_settings_changes,
+                   width=14, style='Sub.TButton').grid(row=2, column=4, rowspan=2, padx=10, pady=1, sticky=tk.W)
+
+        lab_peso_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        lab_volume_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        self._update_lab_rapporto()
 
         # إطار الألوان المستوردة (أصغر)
         colors_frame = ttk.LabelFrame(self.window, text=f"Imported Colors", padding=8)
@@ -374,6 +404,49 @@ class PDFImportWindow:
 
         ttk.Button(button_row, text="Close",
                    command=self.window.destroy, width=20, style='Sub.TButton').pack(side=tk.RIGHT, padx=2)
+
+    def _safe_positive_float(self, raw_value: str, fallback: float) -> float:
+        try:
+            value = float(str(raw_value).strip())
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+        return fallback
+
+    def _update_lab_rapporto(self):
+        sample_g = self._safe_positive_float(self.lab_peso_var.get(), 10.0)
+        volume_ml = self._safe_positive_float(self.lab_volume_var.get(), 150.0)
+        ratio = volume_ml / sample_g if sample_g else 0.0
+        rounded = round(ratio)
+        if abs(ratio - rounded) < 1e-9:
+            rapporto_text = f"1:{int(rounded)}"
+        else:
+            rapporto_text = f"1:{ratio:.2f}"
+        self.lab_rapporto_var.set(rapporto_text)
+
+    def _get_lab_params(self) -> Dict[str, float]:
+        sample_g = self._safe_positive_float(self.lab_peso_var.get(), 10.0)
+        volume_ml = self._safe_positive_float(self.lab_volume_var.get(), 150.0)
+        return {"sample_g": sample_g, "volume_ml": volume_ml}
+
+    def _save_lab_settings_changes(self):
+        params = self._get_lab_params()
+        saved = save_lab_settings(params["sample_g"], params["volume_ml"])
+        self.lab_peso_var.set(f"{saved['sample_g']:.2f}")
+        self.lab_volume_var.set(f"{saved['volume_ml']:.2f}")
+        self._update_lab_rapporto()
+        self.window.event_generate("<<LabSettingsChanged>>", when="tail")
+        messagebox.showinfo("Saved", "Lab parameters saved for the whole program.", parent=self.window)
+
+    def _on_lab_settings_changed(self, _event=None):
+        try:
+            latest = load_lab_settings()
+            self.lab_peso_var.set(f"{latest['sample_g']:.2f}")
+            self.lab_volume_var.set(f"{latest['volume_ml']:.2f}")
+            self._update_lab_rapporto()
+        except Exception:
+            pass
 
     def browse_pdf(self):
         """تصفح واختيار ملف PDF"""
@@ -461,11 +534,16 @@ class PDFImportWindow:
     def update_ui(self, colors: List[Dict]):
         """تحديث واجهة المستخدم بالبيانات المستوردة"""
         # تحديث معلومات الوصفة
+        calculated_total = sum(float(c.get('percentage', 0) or 0) for c in colors)
+        if self.imported_data is None:
+            self.imported_data = {}
+        self.imported_data['total_percentage'] = calculated_total
+
         self.recipe_name_var.set(self.imported_data.get('recipe_name', 'Imported Recipe'))
         self.recipe_code_var.set(self.imported_data.get('recipe_code', ''))
         # سيتم تحديث نوع الصبغة في recalculate_chemicals
         self.dye_type_var.set("Calculating...")
-        self.total_percent_var.set(f"{self.imported_data.get('total_percentage', 0):.4f}%")
+        self.total_percent_var.set(f"{calculated_total:.4f}%")
 
         # تحديث شجرة الألوان
         for item in self.colors_tree.get_children():
@@ -536,7 +614,9 @@ class PDFImportWindow:
             dominant_type = max(type_totals, key=type_totals.get) if type_totals else 'GENERAL'
             # --- END FIX ---
 
-            total_percent = self.imported_data.get('total_percentage', 0)
+            total_percent = sum(color.get('percentage', 0) for color in colors_from_tree)
+            self.imported_data['total_percentage'] = total_percent
+            self.total_percent_var.set(f"{total_percent:.4f}%")
 
             # استخدام النوع المهيمن للحساب
             self.chemicals = ChemicalCalculator.calculate_chemicals(total_percent, dominant_type)
@@ -731,12 +811,13 @@ class PDFImportWindow:
                 recipe=recipe_obj,
                 colors=colors_data,
                 chemicals=self.chemicals,
-                total_percentage=self.imported_data.get('total_percentage', 0),
+                total_percentage=sum(c.get('percentage', 0) for c in colors_data),
                 dominant_type=self.dye_type_var.get(),
                 cost=total_cost
             )
 
             # تصدير إلى PDF
+            recipe_details.lab_params = self._get_lab_params()
             pdf_path = PDFExporter.export_recipe_to_pdf(recipe_details, parent_window=self.window)
 
             if pdf_path:

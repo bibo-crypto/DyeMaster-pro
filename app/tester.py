@@ -16,7 +16,18 @@ from app.calculator import ChemicalCalculator, CostCalculator
 from app.pdf_exporter import PDFExporter
 from app.models import Color, Recipe, Chemical
 from app.utils import *
-from app.config import DYE_TYPES
+
+
+def _configure_stdout_for_unicode() -> None:
+    """Avoid UnicodeEncodeError on Windows terminals with cp1252 default encoding."""
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+_configure_stdout_for_unicode()
 
 
 class SystemTester:

@@ -9,7 +9,8 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from app.utils import get_current_timestamp
 from app.config import DATABASE_FILE, BACKUP_DIR
-from app.models import Color, Recipe, RecipeColor, RecipeDetails, Chemical
+from app.models import Color, Recipe, Chemical
+from app.cache import cache_manager
 
 
 class ColorManager:
@@ -1501,40 +1502,12 @@ class DatabaseManager:
 
     def get_cache_stats(self) -> Dict:
         """الحصول على إحصائيات الـ Cache"""
-        return {}
+        return cache_manager.get_stats()
 
     def clear_cache(self):
         """مسح الـ Cache"""
-        pass
+        cache_manager.clear()
 
     def cleanup_expired_cache(self):
         """تنظيف عناصر الـ Cache المنتهية الصلاحية"""
-        pass
-
-
-class Chemical:
-    """نموذج الكيماويات"""
-    def __init__(self, code: str = "", name: str = "", quantity: float = 0.0, unit: str = ""):
-        self.code = code
-        self.name = name
-        self.quantity = quantity
-        self.unit = unit
-
-
-class PaginationHelper:
-    """مساعد التقسيم على صفحات"""
-    
-    @staticmethod
-    def paginate(items: List, page: int = 1, per_page: int = 10) -> Dict:
-        """تقسيم العناصر على صفحات"""
-        total = len(items)
-        start = (page - 1) * per_page
-        end = start + per_page
-        
-        return {
-            'items': items[start:end],
-            'total': total,
-            'page': page,
-            'per_page': per_page,
-            'total_pages': (total + per_page - 1) // per_page
-        }
+        cache_manager.cleanup_expired()

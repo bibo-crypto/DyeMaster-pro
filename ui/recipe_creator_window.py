@@ -3,7 +3,6 @@
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime
 from typing import List, Dict
 
 from app.database import DatabaseManager
@@ -11,6 +10,7 @@ from app.calculator import ChemicalCalculator, CostCalculator
 from app.utils import clean_recipe_code, validate_recipe_code_input, get_current_timestamp
 from app.models import Recipe
 from app.config import DYE_TYPES
+from app.lab_settings import load_lab_settings, save_lab_settings
 
 
 def _show_on_top(window, parent):
@@ -41,7 +41,7 @@ class RecipeCreatorWindow:
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.82)
+        height = int(screen_height * 0.88)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -50,7 +50,7 @@ class RecipeCreatorWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.minsize(980, 620)
+        self.window.minsize(980, 700)
 
         # Keep it as a normal top-level window so Windows title-bar controls
         # (Close / Restore / Minimize) remain fully available.
@@ -59,6 +59,10 @@ class RecipeCreatorWindow:
         self.selected_colors: List[Dict] = []
         self.recipe_code_var = tk.StringVar()
         self.recipe_name_var = tk.StringVar()
+        current_lab = load_lab_settings()
+        self.lab_peso_var = tk.StringVar(value=f"{current_lab['sample_g']:.2f}")
+        self.lab_volume_var = tk.StringVar(value=f"{current_lab['volume_ml']:.2f}")
+        self.lab_rapporto_var = tk.StringVar(value="")
 
         # متغيرات البحث لكل تبويب
         self.search_code_var_ind = tk.StringVar()
@@ -71,6 +75,7 @@ class RecipeCreatorWindow:
 
         # إنشاء الواجهة
         self.setup_ui()
+        self.window.bind_all("<<LabSettingsChanged>>", self._on_lab_settings_changed)
 
         # تحميل الألوان المتاحة
         self.load_available_colors()
@@ -89,8 +94,8 @@ class RecipeCreatorWindow:
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
         # إطار معلومات الوصفة
-        info_frame = ttk.LabelFrame(self.window, text="Recipe Information", padding=8)
-        info_frame.pack(fill=tk.X, padx=10, pady=3)
+        info_frame = ttk.LabelFrame(self.window, text="Recipe Information", padding=5)
+        info_frame.pack(fill=tk.X, padx=10, pady=2)
 
         # كود الوصفة
         ttk.Label(info_frame, text="Recipe Code* (6 digits):").grid(row=0, column=0, padx=5, pady=3, sticky="e")
@@ -109,10 +114,31 @@ class RecipeCreatorWindow:
         name_entry = ttk.Entry(info_frame, textvariable=self.recipe_name_var, width=35)
         name_entry.grid(row=0, column=3, padx=5, pady=3, sticky="w")
 
+        ttk.Separator(info_frame, orient=tk.VERTICAL).grid(row=0, column=4, sticky="ns", padx=12)
+        ttk.Label(info_frame, text="Peso (g):").grid(row=0, column=5, padx=(4, 2), pady=3, sticky="e")
+        lab_peso_entry = ttk.Entry(info_frame, textvariable=self.lab_peso_var, width=8)
+        lab_peso_entry.grid(row=0, column=6, padx=2, pady=3, sticky="w")
+
+        ttk.Label(info_frame, text="Volume (ml):").grid(row=0, column=7, padx=(8, 2), pady=3, sticky="e")
+        lab_volume_entry = ttk.Entry(info_frame, textvariable=self.lab_volume_var, width=8)
+        lab_volume_entry.grid(row=0, column=8, padx=2, pady=3, sticky="w")
+
+        ttk.Label(info_frame, text="Rapporto Bagno:").grid(row=0, column=9, padx=(8, 2), pady=3, sticky="e")
+        lab_rapporto_entry = ttk.Entry(info_frame, textvariable=self.lab_rapporto_var, width=10, state="readonly")
+        lab_rapporto_entry.grid(row=0, column=10, padx=2, pady=3, sticky="w")
+
+        ttk.Button(info_frame, text="Save Changes",
+                   command=self._save_lab_settings_changes,
+                   width=12, style='Sub.TButton').grid(row=0, column=11, padx=(10, 2), pady=3, sticky="w")
+
+        lab_peso_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        lab_volume_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        self._update_lab_rapporto()
+
         # ======== التعديل الأساسي: تبويبات الألوان ========
         # إنشاء Notebook للتبويبات
         notebook = ttk.Notebook(self.window)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=3)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=2)
 
         # ====== تبويب INDANTHREN ======
         indanthren_frame = ttk.Frame(notebook, padding=5)
@@ -142,7 +168,7 @@ class RecipeCreatorWindow:
             indanthren_frame,
             columns=("code", "name", "dye_type", "price"),
             show="headings",
-            height=10
+            height=7
         )
 
         self.indanthren_tree.heading("code", text="Color Code")
@@ -190,7 +216,7 @@ class RecipeCreatorWindow:
             reattivi_frame,
             columns=("code", "name", "dye_type", "price"),
             show="headings",
-            height=10
+            height=7
         )
 
         self.reattivi_tree.heading("code", text="Color Code")
@@ -225,7 +251,12 @@ class RecipeCreatorWindow:
         ttk.Button(control_frame, text="Add Color", command=self.add_selected_color, width=12, style='Sub.TButton').pack(pady=5)
 
         # زر الحذف
-        ttk.Button(control_frame, text="Remove Selected", command=self.remove_selected_color, width=12, style='Sub.TButton').pack(pady=3)
+        ttk.Button(control_frame, text="Remove Selected", command=self.remove_selected_color, width=16, style='Sub.TButton').pack(pady=3)
+
+        # نقل زر المسح الكامل إلى عمود التحكم أسفل Remove Selected
+        ttk.Button(control_frame, text="Clear All Colors",
+                   command=self.clear_all_colors,
+                   width=16, style='Sub.TButton').pack(pady=5)
 
         # إطار الألوان المضافة
         selected_frame = ttk.LabelFrame(self.window, text="Added Colors", padding=8)
@@ -236,7 +267,7 @@ class RecipeCreatorWindow:
             selected_frame,
             columns=("code", "name", "dye_type", "percentage", "cost"),
             show="headings",
-            height=10
+            height=7
         )
 
         self.selected_tree.heading("code", text="Color Code")
@@ -282,11 +313,19 @@ class RecipeCreatorWindow:
 
         # إطار الكيماويات
         chemicals_frame = ttk.LabelFrame(self.window, text="Required Chemicals", padding=8)
-        chemicals_frame.pack(fill=tk.X, padx=10, pady=3)
+        chemicals_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=3)
 
-        # ✅ زيادة الارتفاع من 2 إلى 6 لرؤية جميع الكيماويات
-        self.chemicals_text = tk.Text(chemicals_frame, height=6, wrap=tk.WORD, font=('Arial', 10))
-        self.chemicals_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)  # ✅ fill=tk.BOTH, expand=True
+        chemicals_scrollbar = ttk.Scrollbar(chemicals_frame, orient="vertical")
+        self.chemicals_text = tk.Text(
+            chemicals_frame,
+            height=8,
+            wrap=tk.WORD,
+            font=('Arial', 10),
+            yscrollcommand=chemicals_scrollbar.set
+        )
+        chemicals_scrollbar.config(command=self.chemicals_text.yview)
+        chemicals_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.chemicals_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=2)
         self.chemicals_text.insert(tk.END, "No chemicals calculated yet. Add colors to the recipe.")
         self.chemicals_text.config(state='disabled')
 
@@ -309,10 +348,6 @@ class RecipeCreatorWindow:
                    command=self.show_chemicals_details,
                    width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(button_row, text="Clear All Colors",
-                   command=self.clear_all_colors,
-                   width=18, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-
         ttk.Button(button_row, text="Close Window",
                    command=self.window.destroy,
                    width=15, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
@@ -322,6 +357,49 @@ class RecipeCreatorWindow:
         if value == '':
             return True
         return value.isdigit() and len(value) <= 6
+
+    def _get_lab_params(self) -> Dict[str, float]:
+        sample_g = self._safe_positive_float(self.lab_peso_var.get(), 10.0)
+        volume_ml = self._safe_positive_float(self.lab_volume_var.get(), 150.0)
+        return {"sample_g": sample_g, "volume_ml": volume_ml}
+
+    def _safe_positive_float(self, raw_value: str, fallback: float) -> float:
+        try:
+            value = float(str(raw_value).strip())
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+        return fallback
+
+    def _update_lab_rapporto(self):
+        sample_g = self._safe_positive_float(self.lab_peso_var.get(), 10.0)
+        volume_ml = self._safe_positive_float(self.lab_volume_var.get(), 150.0)
+        ratio = volume_ml / sample_g if sample_g else 0.0
+        rounded = round(ratio)
+        if abs(ratio - rounded) < 1e-9:
+            rapporto_text = f"1:{int(rounded)}"
+        else:
+            rapporto_text = f"1:{ratio:.2f}"
+        self.lab_rapporto_var.set(rapporto_text)
+
+    def _save_lab_settings_changes(self):
+        params = self._get_lab_params()
+        saved = save_lab_settings(params["sample_g"], params["volume_ml"])
+        self.lab_peso_var.set(f"{saved['sample_g']:.2f}")
+        self.lab_volume_var.set(f"{saved['volume_ml']:.2f}")
+        self._update_lab_rapporto()
+        self.window.event_generate("<<LabSettingsChanged>>", when="tail")
+        messagebox.showinfo("Saved", "Lab parameters saved for the whole program.", parent=self.window)
+
+    def _on_lab_settings_changed(self, _event=None):
+        try:
+            latest = load_lab_settings()
+            self.lab_peso_var.set(f"{latest['sample_g']:.2f}")
+            self.lab_volume_var.set(f"{latest['volume_ml']:.2f}")
+            self._update_lab_rapporto()
+        except Exception:
+            pass
 
     def load_available_colors(self):
         """تحميل الألوان المتاحة"""
@@ -549,6 +627,18 @@ class RecipeCreatorWindow:
     def add_color_to_recipe(self, color_data, percentage):
         """إضافة لون إلى الوصفة"""
         # التحقق من التوافق بين أنواع الصباغة
+        new_color_code = str(color_data[0]).strip()
+
+        # Prevent adding the same color twice to one recipe.
+        for existing_color in self.selected_colors:
+            if str(existing_color.get("code", "")).strip() == new_color_code:
+                messagebox.showwarning(
+                    "Duplicate Color",
+                    f"Color '{new_color_code}' is already added to this recipe.",
+                    parent=self.window
+                )
+                return
+
         new_dye_type = color_data[2]
         
         # فحص إذا كانت هناك ألوان مضافة بالفعل
@@ -578,7 +668,7 @@ class RecipeCreatorWindow:
             price = 0.0
 
         self.selected_colors.append({
-            "code": color_data[0],
+            "code": new_color_code,
             "name": color_data[1],
             "dye_type": color_data[2],
             "price_kg": price,
@@ -850,6 +940,7 @@ class RecipeCreatorWindow:
             recipe_id = self.db.add_recipe(recipe, self.selected_colors, recipe_details.chemicals)
             recipe.id = recipe_id
             recipe_details.recipe = recipe
+            recipe_details.lab_params = self._get_lab_params()
 
             from app.pdf_exporter import PDFExporter
             pdf_path = PDFExporter.export_recipe_to_pdf(recipe_details, parent_window=self.window)
