@@ -140,12 +140,15 @@ class ColorManager:
                     WHERE color_id = ?
                 """, (new_color_id, old_color_id))
                 conn.commit()
-                conn.close()
                 return True
             
-            conn.close()
             return False
         except Exception:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             return False
         finally:
             if conn:
@@ -162,14 +165,12 @@ class ColorManager:
             cursor.execute("SELECT code FROM colors WHERE id = ?", (color_id,))
             row = cursor.fetchone()
             if not row:
-                conn.close()
                 return True  # نعتبره ناجحاً لأنه غير موجود أصلاً
 
             color_code = row[0]
 
             # التحقق من استخدام اللون في الوصفات
             if self.is_color_in_use(color_code):
-                conn.close()
                 return False  # لا يمكن الحذف إذا كان اللون مستخدماً
 
             # حذف ارتباطات اللون في الوصفات أولاً لتجنب السجلات اليتيمة
@@ -178,11 +179,15 @@ class ColorManager:
             # حذف اللون
             cursor.execute("DELETE FROM colors WHERE id = ?", (color_id,))
             conn.commit()
-            conn.close()
 
             return True
 
         except Exception:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             return False
         finally:
             if conn:
@@ -240,6 +245,7 @@ class ColorManager:
 
     def is_color_in_use(self, color_code: str) -> bool:
         """التحقق من استخدام اللون في ريتشتات"""
+        conn = None
         try:
             from app.utils import clean_color_code
             normalized_code = clean_color_code(color_code)
@@ -254,14 +260,17 @@ class ColorManager:
                 WHERE color_id = ?
             ''', (color.id,))
             count = cursor.fetchone()[0]
-            conn.close()
 
             return count > 0
-        except:
+        except Exception:
             return False
+        finally:
+            if conn:
+                conn.close()
 
     def get_recipes_using_color(self, color_code: str) -> List[Recipe]:
         """الحصول على جميع الريتشتات التي تستخدم هذا اللون"""
+        conn = None
         try:
             from app.utils import clean_color_code
             normalized_code = clean_color_code(color_code)
@@ -277,7 +286,6 @@ class ColorManager:
                 WHERE rc.color_id = ?
             ''', (color.id,))
             rows = cursor.fetchall()
-            conn.close()
 
             recipes = []
             for row in rows:
@@ -288,8 +296,11 @@ class ColorManager:
                     created_at=row[3]
                 ))
             return recipes
-        except:
+        except Exception:
             return []
+        finally:
+            if conn:
+                conn.close()
 
 
 class DatabaseManager:
@@ -502,6 +513,11 @@ class DatabaseManager:
             return affected > 0
 
         except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             raise Exception(f"Failed to update color: {str(e)}")
         finally:
             if conn:
@@ -536,6 +552,11 @@ class DatabaseManager:
             return affected > 0
 
         except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             raise Exception(f"Failed to delete color: {str(e)}")
         finally:
             if conn:
@@ -554,6 +575,11 @@ class DatabaseManager:
             return affected > 0
 
         except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             raise Exception(f"Failed to delete color: {str(e)}")
         finally:
             if conn:
@@ -816,8 +842,18 @@ class DatabaseManager:
             return recipe_id
 
         except sqlite3.IntegrityError as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             raise Exception(f"Recipe code '{recipe.recipe_code}' already exists")
         except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             raise Exception(f"Failed to add recipe: {str(e)}")
         finally:
             if conn:
@@ -902,40 +938,7 @@ class DatabaseManager:
 
     def get_recipes_using_color(self, color_code: str) -> List[Recipe]:
         """Calls the color manager to get all recipes using a specific color."""
-        # This method was missing, so we are adding it to be accessible.
-        # It directly calls the method on the ColorManager instance.
-        if hasattr(self, 'color_manager') and hasattr(self.color_manager, 'get_recipes_using_color'):
-            return self.color_manager.get_recipes_using_color(color_code)
-        
-        # Fallback for safety, though it duplicates logic from ColorManager
-        try:
-            from app.utils import clean_color_code
-            normalized_code = clean_color_code(color_code)
-            color = self.get_color_by_code(normalized_code)
-            if not color:
-                return []
-
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT r.* FROM recipes r
-                JOIN recipe_colors rc ON r.id = rc.recipe_id
-                WHERE rc.color_id = ?
-            ''', (color.id,))
-            rows = cursor.fetchall()
-            conn.close()
-
-            recipes = []
-            for row in rows:
-                recipes.append(Recipe(
-                    id=row[0],
-                    recipe_code=row[1],
-                    name=row[2],
-                    created_at=row[3]
-                ))
-            return recipes
-        except:
-            return []
+        return self.color_manager.get_recipes_using_color(color_code)
 
     def get_recipe_details(self, recipe_id: int) -> dict:
         """الحصول على تفاصيل الوصفة مع ألوانها"""
@@ -1311,7 +1314,7 @@ class DatabaseManager:
             backup_file = os.path.join(backup_dir, f"ColorChem_Backup_{timestamp}.db")
             
             # نسخ قاعدة البيانات
-            shutil.copy2(DATABASE_FILE, backup_file)
+            shutil.copy2(self.db_file, backup_file)
             
             return backup_file
             

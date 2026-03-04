@@ -226,6 +226,16 @@ class PDFImportWindow:
         self.configure_styles()
         self.setup_ui()
         self.window.bind_all("<<LabSettingsChanged>>", self._on_lab_settings_changed)
+        self.window.bind("<Destroy>", self._on_window_destroy, add="+")
+
+    def _on_window_destroy(self, event=None):
+        """Cleanup global bindings when this window is closed."""
+        if event is not None and getattr(event, "widget", None) is not self.window:
+            return
+        try:
+            self.window.unbind_all("<<LabSettingsChanged>>")
+        except Exception:
+            pass
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""

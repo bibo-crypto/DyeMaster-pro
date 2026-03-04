@@ -697,9 +697,10 @@ class SimpleColorsWindow:
 class ColorsInUseWindow:
     """نافذة الألوان المستخدمة"""
 
-    def __init__(self, parent, db, initial_search_code: str = None):
+    def __init__(self, parent, db, initial_search_code: str = None, on_data_changed=None):
         self.parent = parent
         self.db = db
+        self.on_data_changed = on_data_changed
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
@@ -739,15 +740,12 @@ class ColorsInUseWindow:
         # تحميل البيانات
         self.load_data()
 
-        # If an initial search code is provided, perform the search
+        # If an initial color code is provided, search and select this exact color.
         if initial_search_code:
-            self.search_code_var.set(initial_search_code)
+            normalized_code = clean_color_code(initial_search_code)
+            self.search_code_var.set(normalized_code)
             self.perform_search()
-            # Automatically select the first (and likely only) item in the tree
-            children = self.colors_tree.get_children()
-            if children:
-                self.colors_tree.selection_set(children[0])
-                self.colors_tree.focus(children[0])
+            self._select_color_in_tree(normalized_code)
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
@@ -933,6 +931,24 @@ class ColorsInUseWindow:
         self.search_name_var.set("")
         self.load_data()
         self.search_code_entry.focus()
+
+    def _select_color_in_tree(self, color_code: str):
+        """Select a specific color row by exact code and show its recipes."""
+        target_code = clean_color_code(color_code)
+        if not target_code:
+            return
+
+        for item_id in self.colors_tree.get_children():
+            values = self.colors_tree.item(item_id, "values")
+            if not values:
+                continue
+            row_code = clean_color_code(values[0])
+            if row_code == target_code:
+                self.colors_tree.selection_set(item_id)
+                self.colors_tree.focus(item_id)
+                self.colors_tree.see(item_id)
+                self.show_color_recipes()
+                return
 
     def sort_treeview(self, treeview, column, is_recipes_tree=False):
         """
@@ -1148,14 +1164,14 @@ class ColorsInUseWindow:
                 self.window,
                 self.db,
                 color_code,
-                callback=self.refresh_window  # ⬅️ هذا هو المهم!
+                callback=self._on_color_changed
             )
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open color window: {str(e)}", parent=self.window)
 
-    def refresh_window(self):
-        """تحديث النافذة بالكامل"""
+    def _on_color_changed(self):
+        """Handle color change and notify parent window."""
         try:
             # إعادة تحميل البيانات
             self.load_data()
@@ -1165,6 +1181,8 @@ class ColorsInUseWindow:
                 self.recipes_tree.delete(item)
 
             self.status_label.config(text="Data refreshed successfully")
+            if callable(self.on_data_changed):
+                self.on_data_changed()
 
         except Exception as e:
             self.status_label.config(text="Error refreshing data")

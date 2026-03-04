@@ -64,6 +64,7 @@ class ColorChemSystemGUI:
         self.dark_mode = False
         self.sort_column = "code"
         self.sort_ascending = True
+        self._child_windows = {}
 
         # تحسين المظهر العام
         self.style = ttk.Style()
@@ -136,10 +137,10 @@ class ColorChemSystemGUI:
         file_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="File", menu=file_menu)
 
-        file_menu.add_command(label="Exit", command=self.root.quit, accelerator="Ctrl+Q")
+        file_menu.add_command(label="Exit", command=self.on_closing, accelerator="Ctrl+Q")
 
         # ربط الاختصارات
-        self.root.bind('<Control-q>', lambda e: self.root.quit())
+        self.root.bind('<Control-q>', lambda e: self.on_closing())
 
         # قائمة Edit
         edit_menu = tk.Menu(menu_bar, tearoff=0)
@@ -449,9 +450,141 @@ Developer: Bibo Marcos
         """فتح نافذة استيراد PDF"""
         try:
             from ui.pdf_import_window import PDFImportWindow
-            PDFImportWindow(self.root, self.db)
+            self._open_single_child_window(
+                "pdf_import",
+                lambda: PDFImportWindow(self.root, self.db)
+            )
         except Exception as e:
             messagebox.showerror("Error", f"Cannot open PDF import: {str(e)}")
+
+    def _get_active_child_window(self):
+        """Return currently alive child window object if any."""
+        stale_keys = []
+        for child_key, child_obj in self._child_windows.items():
+            child_window = getattr(child_obj, "window", None)
+            try:
+                if child_window and child_window.winfo_exists():
+                    return child_window
+            except Exception:
+                pass
+            stale_keys.append(child_key)
+        for stale_key in stale_keys:
+            self._child_windows.pop(stale_key, None)
+        return None
+
+    def _release_stale_grab(self):
+        """Release invalid Tk grab state that can freeze the UI."""
+        try:
+            grab_widget = self.root.grab_current()
+            if grab_widget is None:
+                return
+            try:
+                if grab_widget.winfo_exists():
+                    return
+            except Exception:
+                pass
+            self.root.grab_release()
+        except Exception:
+            pass
+
+    def _bring_child_to_front(self, child_window):
+        """Safely show/focus a child window without forcing unstable focus transitions."""
+        try:
+            if not child_window or not child_window.winfo_exists():
+                return
+            child_window.deiconify()
+            child_window.lift()
+            # focus_set is less aggressive than focus_force and avoids some
+            # first-open flicker/close behavior on Windows.
+            child_window.focus_set()
+        except Exception:
+            pass
+
+    def _ensure_modal_grab(self, child_window):
+        """Ensure the child keeps modal grab over the main window."""
+        try:
+            if not child_window or not child_window.winfo_exists():
+                return
+            current_grab = self.root.grab_current()
+            if current_grab is None:
+                child_window.grab_set()
+                return
+            if current_grab is child_window:
+                return
+            current_path = str(current_grab)
+            child_path = str(child_window)
+            if current_path.startswith(f"{child_path}."):
+                return
+        except Exception:
+            pass
+
+    def _open_single_child_window(self, key: str, factory):
+        """Open one modal child window per key and reuse existing instance."""
+        self._release_stale_grab()
+
+        existing = self._child_windows.get(key)
+        if existing is not None:
+            existing_window = getattr(existing, "window", None)
+            try:
+                if existing_window and existing_window.winfo_exists():
+                    self._bring_child_to_front(existing_window)
+                    self._ensure_modal_grab(existing_window)
+                    return existing
+            except Exception:
+                pass
+            self._child_windows.pop(key, None)
+
+        active_window = self._get_active_child_window()
+        if active_window is not None:
+            try:
+                self._bring_child_to_front(active_window)
+                self._ensure_modal_grab(active_window)
+            except Exception:
+                pass
+            return None
+
+        instance = factory()
+        child_window = getattr(instance, "window", None)
+        if not child_window:
+            return instance
+
+        self._child_windows[key] = instance
+
+        def _cleanup_child(_event=None):
+            # Ignore destroy events coming from child widgets; we only care
+            # when the toplevel window itself is being destroyed.
+            if _event is not None and getattr(_event, "widget", None) is not child_window:
+                return
+            try:
+                if self.root.grab_current() is child_window:
+                    child_window.grab_release()
+            except Exception:
+                pass
+            if self._child_windows.get(key) is instance:
+                self._child_windows.pop(key, None)
+
+        def _on_child_close():
+            try:
+                child_window.destroy()
+            except Exception:
+                _cleanup_child()
+
+        try:
+            child_window.transient(self.root)
+            child_window.protocol("WM_DELETE_WINDOW", _on_child_close)
+            child_window.bind("<Destroy>", _cleanup_child, add="+")
+            self._bring_child_to_front(child_window)
+            self._ensure_modal_grab(child_window)
+            # Re-assert visibility shortly after creation to avoid first-open
+            # withdrawn state on some Windows setups.
+            child_window.after(80, lambda: self._bring_child_to_front(child_window))
+            child_window.after(220, lambda: self._bring_child_to_front(child_window))
+            child_window.after(80, lambda: self._ensure_modal_grab(child_window))
+            child_window.after(220, lambda: self._ensure_modal_grab(child_window))
+        except Exception:
+            _cleanup_child()
+
+        return instance
 
     
     def setup_search_frame(self):
@@ -525,7 +658,6 @@ Developer: Bibo Marcos
         ttk.Button(control_frame, text="✏ Modify Color", command=self.modify_color, style="App.TButton").grid(row=0, column=1, padx=5)
         ttk.Button(control_frame, text="🗑 Delete Color", command=self.delete_color, style="App.TButton").grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="🧹 Clear Fields", command=self.clear_fields, style="App.TButton").grid(row=0, column=3, padx=5)
-        ttk.Button(control_frame, text="⟳ Refresh List", command=self.load_data, style="App.TButton").grid(row=0, column=4, padx=5)
 
     def setup_table(self):
         """إعداد الجدول"""
@@ -865,7 +997,7 @@ Developer: Bibo Marcos
                 )
 
                 if response:
-                    self.open_colors_in_use()
+                    self.open_colors_in_use(initial_search_code=old_code)
                 return
         except Exception as e:
             print(f"Error checking color usage: {e}")
@@ -1002,7 +1134,10 @@ Developer: Bibo Marcos
         """فتح نافذة إنشاء وصفة"""
         try:
             from ui.recipe_creator_window import RecipeCreatorWindow
-            RecipeCreatorWindow(self.root, self.db)
+            self._open_single_child_window(
+                "recipe_creator",
+                lambda: RecipeCreatorWindow(self.root, self.db)
+            )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Recipe Creator: {str(e)}")
 
@@ -1010,15 +1145,36 @@ Developer: Bibo Marcos
         """فتح نافذة الريتشتات المحفوظة"""
         try:
             from ui.saved_recipes_window import SavedRecipesWindow
-            SavedRecipesWindow(self.root, self.db)
+            self._open_single_child_window(
+                "saved_recipes",
+                lambda: SavedRecipesWindow(self.root, self.db)
+            )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Saved Recipes window: {str(e)}")
 
-    def open_colors_in_use(self):
+    def open_colors_in_use(self, initial_search_code: str = None):
         """فتح نافذة الألوان المستخدمة"""
         try:
             from ui.colors_in_use_window import ColorsInUseWindow
-            ColorsInUseWindow(self.root, self.db)
+            window_obj = self._open_single_child_window(
+                "colors_in_use",
+                lambda: ColorsInUseWindow(
+                    self.root,
+                    self.db,
+                    initial_search_code=initial_search_code,
+                    on_data_changed=self.load_data
+                )
+            )
+            # If already open, keep behavior of pre-selecting requested color.
+            if initial_search_code and window_obj:
+                try:
+                    normalized_code = clean_color_code(initial_search_code)
+                    window_obj.search_code_var.set(normalized_code)
+                    window_obj.perform_search()
+                    if hasattr(window_obj, "_select_color_in_tree"):
+                        window_obj._select_color_in_tree(normalized_code)
+                except Exception:
+                    pass
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Colors in Use window: {str(e)}")
 
@@ -1090,6 +1246,24 @@ Developer: Bibo Marcos
             # لا نمنع الإغلاق حتى إذا فشل الـ backup
         
         # إغلاق البرنامج بشكل طبيعي
+        try:
+            for child_obj in list(self._child_windows.values()):
+                child_window = getattr(child_obj, "window", None)
+                if child_window and child_window.winfo_exists():
+                    try:
+                        if self.root.grab_current() is child_window:
+                            child_window.grab_release()
+                    except Exception:
+                        pass
+                    child_window.destroy()
+            self._child_windows.clear()
+            try:
+                if self.root.grab_current() is not None:
+                    self.root.grab_release()
+            except Exception:
+                pass
+        except Exception:
+            pass
         self.root.destroy()
 
     def run(self):

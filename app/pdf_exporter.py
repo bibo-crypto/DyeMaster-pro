@@ -90,6 +90,44 @@ class PDFExporter:
         return unit_str
 
     @staticmethod
+    def _is_liquid_unit(unit: str) -> bool:
+        base = PDFExporter._normalize_lab_unit(unit).strip().lower()
+        return ("ml" in base) or ("cc" in base) or (base in {"l", "lt", "ltr", "liter", "litre"})
+
+    @staticmethod
+    def _to_ml(quantity: float, unit: str) -> float:
+        base = PDFExporter._normalize_lab_unit(unit).strip().lower()
+        qty = max(0.0, PDFExporter._to_float(quantity, 0.0))
+        if "ml" in base or "cc" in base:
+            return qty
+        if base in {"l", "lt", "ltr", "liter", "litre"}:
+            return qty * 1000.0
+        return 0.0
+
+    @staticmethod
+    def _compute_water_required_ml(recipe_details: RecipeDetails, lab_sample_g: float, lab_volume_ml: float) -> int:
+        # Colors are treated as liquids in lab basis.
+        colors_liquid_ml = 0.0
+        for color in getattr(recipe_details, "colors", []) or []:
+            percentage = PDFExporter._to_float(PDFExporter._color_value(color, "percentage", 0.0), 0.0)
+            colors_liquid_ml += max(0.0, percentage) * lab_sample_g
+
+        # Chemicals are defined per liter in most formulas; convert to lab-bath basis first.
+        chemicals_liquid_ml = 0.0
+        factor = lab_volume_ml / 1000.0
+        for chemical in getattr(recipe_details, "chemicals", []) or []:
+            qty = PDFExporter._to_float(getattr(chemical, "quantity", 0.0), 0.0)
+            unit = str(getattr(chemical, "unit", "") or "").strip()
+            if not unit or not PDFExporter._is_liquid_unit(unit):
+                continue
+            qty_lab = qty * factor if "/" in unit else qty
+            chemicals_liquid_ml += PDFExporter._to_ml(qty_lab, unit)
+
+        used_liquids_ml = colors_liquid_ml + chemicals_liquid_ml
+        water_required_ml = max(0.0, lab_volume_ml - used_liquids_ml)
+        return int(round(water_required_ml))
+
+    @staticmethod
     def _resolve_total_percentage(recipe_details: RecipeDetails) -> float:
         total = PDFExporter._to_float(getattr(recipe_details, "total_percentage", 0.0), 0.0)
         if total > 0:
@@ -166,7 +204,7 @@ class PDFExporter:
         elements.append(info_table)
         elements.append(Spacer(1, 16))
 
-        colors_rows = [["Code", "Name", "%/kg", "Lab Qty (ml)"]]
+        colors_rows = [["Code", "Name", "Production Qty", "Lab Qty"]]
         for color in getattr(recipe_details, "colors", []) or []:
             color_code = PDFExporter._color_value(color, "code")
             color_name = PDFExporter._color_value(color, "name")
@@ -208,6 +246,9 @@ class PDFExporter:
         ]))
         elements.append(chemicals_table)
         elements.append(Spacer(1, 12))
+        water_required_ml = PDFExporter._compute_water_required_ml(recipe_details, lab_sample_g, lab_volume_ml)
+        elements.append(Paragraph(f"Water Required: {water_required_ml} ml", styles["Heading3"]))
+        elements.append(Spacer(1, 6))
         per_liter_factor = lab_volume_ml / 1000.0
         elements.append(Paragraph(f"Lab basis: {lab_sample_g:.2f} g yarn, {lab_volume_ml:.2f} ml bath.", styles["Normal"]))
         elements.append(Paragraph(f"Color lab: %/kg x {lab_sample_g:.2f} = ml.", styles["Normal"]))

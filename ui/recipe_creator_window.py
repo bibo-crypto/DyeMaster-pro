@@ -76,9 +76,19 @@ class RecipeCreatorWindow:
         # إنشاء الواجهة
         self.setup_ui()
         self.window.bind_all("<<LabSettingsChanged>>", self._on_lab_settings_changed)
+        self.window.bind("<Destroy>", self._on_window_destroy, add="+")
 
         # تحميل الألوان المتاحة
         self.load_available_colors()
+
+    def _on_window_destroy(self, event=None):
+        """Cleanup global bindings when this window is closed."""
+        if event is not None and getattr(event, "widget", None) is not self.window:
+            return
+        try:
+            self.window.unbind_all("<<LabSettingsChanged>>")
+        except Exception:
+            pass
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
