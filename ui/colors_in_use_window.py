@@ -3,100 +3,26 @@
 """
 import tkinter as tk
 import sqlite3
+from datetime import datetime
 from tkinter import ttk, messagebox, filedialog
 from typing import Dict, Any
 from app.models import Color
 from color_helper import fix_color_code
 
-# ✅ استيراد مباشر
-try:
-    from app.database import DatabaseManager
-    from app.utils import clean_color_code
-    from app.config import DYE_TYPES
-except ImportError:
-    try:
-        from app.database import DatabaseManager
-        from app.utils import clean_color_code
-        from app.config import DYE_TYPES
-    except ImportError:
-        from app.database import DatabaseManager
-        from app.utils import clean_color_code
-        from app.config import DYE_TYPES
-
-from datetime import datetime
+from app.utils import clean_color_code, parse_percentage_input, parse_number_input
+from app.config import DYE_TYPES
 
 
 def _show_on_top(window, parent):
-    """Ensure new windows open above their parent."""
+    """Make child windows modal and keep them above parent."""
     try:
         window.lift()
         window.focus_force()
+        window.grab_set()
         window.attributes("-topmost", True)
         window.after(250, lambda: window.attributes("-topmost", False))
     except Exception:
         pass
-
-
-# ============================================
-# الدوال المساعدة
-# ============================================
-def calculate_age_from_timestamp(timestamp):
-    """حساب العمر من الطابع الزمني"""
-    if not timestamp:
-        return "N/A"
-
-    try:
-        # تحويل النص لـ datetime
-        if isinstance(timestamp, str):
-            # افتراض تنسيق YYYY-MM-DD HH:MM:SS
-            try:
-                # محاولة تحليل التاريخ مع الوقت
-                dt_str = timestamp.split()[0]  # أخذ الجزء الأول (التاريخ)
-                dt = datetime.strptime(dt_str, '%Y-%m-%d')
-            except:
-                return "N/A"
-        else:
-            return "N/A"
-
-        # حساب الفرق بالأيام
-        delta = datetime.now() - dt
-        days = delta.days
-
-        if days == 0:
-            return "Today"
-        elif days == 1:
-            return "1 day"
-        elif days < 30:
-            return f"{days} days"
-        elif days < 365:
-            months = days // 30
-            return f"{months} months"
-        else:
-            years = days // 365
-            return f"{years} years"
-
-    except:
-        return "N/A"
-
-
-def format_currency(value):
-    """تنسيق القيمة النقدية"""
-    try:
-        if value is None:
-            return "€0.00"
-        return f"€{float(value):.2f}"
-    except:
-        return "€0.00"
-
-
-def format_percentage(value):
-    """تنسيق النسبة المئوية"""
-    try:
-        if value is None:
-            return "0.00%"
-        return f"{float(value):.2f}%"
-    except:
-        return "0.00%"
 
 
 # ============================================
@@ -116,7 +42,7 @@ class SimpleColorsWindow:
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
-        self.window.title(f"✏️ Modify Color: {color_code}")
+        self.window.title(f"Modify Color: {color_code}")
 
         # ✅ حجم أصغر وأكثر كفاءة
         self.window.geometry("500x550")
@@ -166,7 +92,7 @@ class SimpleColorsWindow:
                     'dye_type': getattr(color, 'dye_type', ''),
                     'supplier': getattr(color, 'supplier', ''),
                     'price_kg': getattr(color, 'price_kg', 0),
-                    'resa_percent': getattr(color, 'resa_percent', 0),
+                    'resa_percent': getattr(color, 'resa_percent', 100),
                     'created_at': getattr(color, 'created_at', ''),
                     'updated_at': getattr(color, 'updated_at', '')
                 }
@@ -180,7 +106,7 @@ class SimpleColorsWindow:
             'dye_type': '',
             'supplier': '',
             'price_kg': 0,
-            'resa_percent': 0,
+            'resa_percent': 100,
             'created_at': '',
             'updated_at': ''
         }
@@ -203,7 +129,7 @@ class SimpleColorsWindow:
         # العنوان
         title_label = ttk.Label(
             main_frame,
-            text=f"✏️ Modify Color: {self.color_data.get('code', '')}",
+            text=f"Modify Color: {self.color_data.get('code', '')}",
             font=('Arial', 12, 'bold'),
             foreground='#2c3e50'
         )
@@ -268,7 +194,7 @@ class SimpleColorsWindow:
         row += 1
 
         # السعر
-        ttk.Label(fields_frame, text="Price (€/kg):",
+        ttk.Label(fields_frame, text="Price (EUR/kg):",
                   font=('Arial', 9)).grid(
             row=row, column=0, sticky="e", padx=5, pady=3)
         self.price_var = tk.StringVar(value=str(self.color_data.get('price_kg', 0)))
@@ -281,7 +207,7 @@ class SimpleColorsWindow:
         ttk.Label(fields_frame, text="Resa %:",
                   font=('Arial', 9)).grid(
             row=row, column=0, sticky="e", padx=5, pady=3)
-        self.resa_var = tk.StringVar(value=str(self.color_data.get('resa_percent', 0)))
+        self.resa_var = tk.StringVar(value=str(self.color_data.get('resa_percent', 100)))
         self.resa_entry = ttk.Entry(fields_frame, textvariable=self.resa_var,
                                     width=30, font=('Arial', 9))
         self.resa_entry.grid(row=row, column=1, padx=5, pady=3, sticky="w")
@@ -365,8 +291,21 @@ class SimpleColorsWindow:
             # جمع البيانات
             new_code = self.code_var.get().strip().upper()
             if not new_code:
-                messagebox.showwarning("⚠️ Warning", "Color code is required!", parent=self.window)
+                messagebox.showwarning("Warning", "Color code is required!", parent=self.window)
                 self.code_entry.focus_set()
+                return
+
+            resa_input = self.resa_var.get().strip() or "100"
+            try:
+                resa_percent = parse_percentage_input(resa_input)
+            except ValueError:
+                messagebox.showwarning(
+                    "Invalid RESA",
+                    "RESA must use English digits only (0-9).\n"
+                    "Allowed format: 85 or 85.5",
+                    parent=self.window
+                )
+                self.resa_entry.focus_set()
                 return
 
             color_data = {
@@ -375,30 +314,29 @@ class SimpleColorsWindow:
                 'dye_type': self.type_var.get().strip(),
                 'supplier': self.supplier_var.get().strip(),
                 'price_kg': self.price_var.get().strip(),
-                'resa_percent': self.resa_var.get().strip()
+                'resa_percent': resa_percent
             }
 
             # التحقق من البيانات
             if not color_data['name']:
-                messagebox.showwarning("⚠️ Warning", "Color name is required!", parent=self.window)
+                messagebox.showwarning("Warning", "Color name is required!", parent=self.window)
                 self.name_entry.focus_set()
                 return
 
             if len(new_code) != 5:
-                messagebox.showwarning("⚠️ Warning", "Color code must be exactly 5 digits!", parent=self.window)
+                messagebox.showwarning("Warning", "Color code must be exactly 5 digits!", parent=self.window)
                 self.code_entry.focus_set()
                 return
 
             # التحقق من القيم العددية
             try:
-                price_val = float(color_data['price_kg']) if color_data['price_kg'] else 0
-                resa_val = float(color_data['resa_percent']) if color_data['resa_percent'] else 0
+                price_val = parse_number_input(color_data['price_kg'], default=0.0)
+                resa_val = parse_number_input(color_data['resa_percent'], default=100.0)
             except ValueError:
-                messagebox.showerror("❌ Error",
-                                     "Please enter valid numeric values for price and resa %\n\n"
+                messagebox.showerror("Error",
+                                     "Please enter valid numeric value for price.\n\n"
                                      "Example:\n"
-                                     "• Price: 12.50\n"
-                                     "• Resa %: 85.5", parent=self.window)
+                                     "- Price: 12.50", parent=self.window)
                 return
 
             # التحقق مما إذا تم تغيير الكود
@@ -411,7 +349,7 @@ class SimpleColorsWindow:
                 conn.close()
 
                 if existing:
-                    messagebox.showerror("❌ Error",
+                    messagebox.showerror("Error",
                                          f"Color code '{new_code}' already exists!\n"
                                          f"Please use a different code.", parent=self.window)
                     self.code_entry.focus_set()
@@ -421,12 +359,13 @@ class SimpleColorsWindow:
             success = self.save_to_database(new_code, color_data, price_val, resa_val)
 
             if success:
-                messagebox.showinfo("✅ Success",
+                resa_display = str(int(resa_val)) if float(resa_val).is_integer() else str(resa_val)
+                messagebox.showinfo("Success",
                                     f"Color '{new_code}' saved successfully!\n\n"
-                                    f"• Name: {color_data['name']}\n"
-                                    f"• Type: {color_data['dye_type']}\n"
-                                    f"• Price: €{price_val:.2f}/kg\n"
-                                    f"• Resa: {resa_val:.2f}%", parent=self.window)
+                                    f"- Name: {color_data['name']}\n"
+                                    f"- Type: {color_data['dye_type']}\n"
+                                    f"- Price: EUR {price_val:.2f}/kg\n"
+                                    f"- Resa: {resa_display}%", parent=self.window)
 
                 # ✅ استدعاء دالة الرد للتحديث
                 if self.callback:
@@ -437,12 +376,12 @@ class SimpleColorsWindow:
 
                 self.window.destroy()
             else:
-                messagebox.showerror("❌ Error",
+                messagebox.showerror("Error",
                                      "Failed to save color in database.\n"
                                      "Please check the database connection.", parent=self.window)
 
         except Exception as e:
-            messagebox.showerror("❌ Error",
+            messagebox.showerror("Error",
                                  f"Failed to save changes:\n{str(e)}", parent=self.window)
 
     def save_to_database(self, new_code, color_data, price_val, resa_val):
@@ -547,12 +486,12 @@ class SimpleColorsWindow:
         num_recipes = len(recipes_using_color)
 
         # إنشاء رسالة مفصلة تظهر الوصفات التي تستخدم هذا اللون
-        recipe_list = "\n".join([f"• {recipe.recipe_code}: {recipe.name}" for recipe in recipes_using_color[:5]])
+        recipe_list = "\n".join([f"- {recipe.recipe_code}: {recipe.name}" for recipe in recipes_using_color[:5]])
         if num_recipes > 5:
             recipe_list += f"\n... and {num_recipes - 5} more recipes"
 
         message = (
-            f"⚠️ Color '{self.original_color_code}' is used in {num_recipes} recipe(s).\n\n"
+            f"Color '{self.original_color_code}' is used in {num_recipes} recipe(s).\n\n"
             f"Recipes using this color:\n{recipe_list}\n\n"
             "Choose how to proceed:"
         )
@@ -574,8 +513,7 @@ class SimpleColorsWindow:
         dialog = tk.Toplevel(self.window)
         dialog.title("Color Deletion Options")
         dialog.geometry("500x300")
-        dialog.transient(self.window)
-        dialog.grab_set()
+        _show_on_top(dialog, self.window)
 
         # توسيط الحوار
         dialog.update_idletasks()
@@ -618,17 +556,17 @@ class SimpleColorsWindow:
         try:
             # تأكيد الإجراء المدمر
             recipe_codes = [recipe.recipe_code for recipe in recipes_using_color]
-            recipe_list = "\n".join([f"• {code}" for code in recipe_codes])
+            recipe_list = "\n".join([f"- {code}" for code in recipe_codes])
 
             confirm_msg = (
-                f"⚠️ WARNING: This will permanently delete {len(recipes_using_color)} recipe(s) and the color!\n\n"
+                f"WARNING: This will permanently delete {len(recipes_using_color)} recipe(s) and the color!\n\n"
                 f"Recipes to be deleted:\n{recipe_list}\n\n"
                 f"Color to be deleted: {self.original_color_code}\n\n"
                 "This action CANNOT be undone!\n\n"
                 "Are you absolutely sure?"
             )
 
-            if not messagebox.askyesno("⚠️ Confirm Mass Deletion", confirm_msg, parent=self.window):
+            if not messagebox.askyesno("Confirm Mass Deletion", confirm_msg, parent=self.window):
                 return
 
             # الحصول على ID اللون
@@ -704,7 +642,7 @@ class ColorsInUseWindow:
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
-        self.window.title("Colors in Use - الألوان المستخدمة في الريتشتات")
+        self.window.title("Colors in Use")
         
         # ضبط أبعاد النافذة لتكون متجاوبة
         screen_width = self.window.winfo_screenwidth()
@@ -791,7 +729,7 @@ class ColorsInUseWindow:
                    command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=5)
 
         # إطار قائمة الألوان المستخدمة
-        list_frame = ttk.LabelFrame(self.main_frame, text="Colors in Use - الألوان المستخدمة", padding=10)
+        list_frame = ttk.LabelFrame(self.main_frame, text="Colors in Use", padding=10)
         list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # شجرة الألوان المستخدمة مع دعم الترتيب
@@ -826,7 +764,7 @@ class ColorsInUseWindow:
         # إطار تفاصيل الريتشتات
         details_frame = ttk.LabelFrame(
             self.main_frame,
-            text="Recipes Using This Color - الريتشتات المستخدم فيها اللون",
+            text="Recipes Using This Color",
             padding=10
         )
         details_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0))
@@ -1021,12 +959,12 @@ class ColorsInUseWindow:
             treeview.insert("", tk.END, values=values)
 
         # تحديث عنوان العمود للإشارة للاتجاه
-        direction = " ↓" if reverse else " ↑"
+        direction = "(desc)" if reverse else "(asc)"
 
         # إزالة أي أسهم سابقة وإضافة السهم الجديد
         current_text = treeview.heading(column)["text"]
-        clean_text = current_text.replace(" ↓", "").replace(" ↑", "")
-        treeview.heading(column, text=clean_text + direction)
+        clean_text = current_text.replace(" (desc)", "").replace(" (asc)", "").replace("(desc)", "").replace("(asc)", "")
+        treeview.heading(column, text=f"{clean_text} {direction}")
 
     def load_data(self):
         """تحميل البيانات"""
@@ -1198,20 +1136,13 @@ class ColorsInUseWindow:
 
         # فتح نافذة تفاصيل الريتشت
         try:
-            # محاولة استيراد من عدة أماكن
-            try:
-                from .saved_recipes_window import SavedRecipesWindow
-                SavedRecipesWindow(self.window, self.db, recipe_id)
-            except ImportError:
-                try:
-                    from ui.saved_recipes_window import SavedRecipesWindow
-                    SavedRecipesWindow(self.window, self.db, recipe_id)
-                except ImportError:
-                    try:
-                        from src.ui.saved_recipes_window import SavedRecipesWindow
-                        SavedRecipesWindow(self.window, self.db, recipe_id)
-                    except ImportError as e:
-                        messagebox.showerror("Error", f"Cannot open recipe details: {str(e)}", parent=self.window)
+            from ui.saved_recipes_window import SavedRecipesWindow
+            SavedRecipesWindow(
+                self.window,
+                self.db,
+                recipe_id,
+                on_data_changed=self._on_color_changed
+            )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open recipe window: {str(e)}", parent=self.window)
 
@@ -1272,3 +1203,4 @@ class ColorsInUseWindow:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export report: {str(e)}", parent=self.window)
+

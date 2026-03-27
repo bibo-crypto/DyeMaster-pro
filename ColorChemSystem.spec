@@ -1,43 +1,61 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
+#
+# Build with:   pyinstaller ColorChemSystem.spec --clean
+#
+# Uses --onedir (NOT --onefile) so PyInstaller never extracts files into
+# a temporary _MEIxxxxxx folder.  This eliminates the
+# "Failed to load Python DLL" / "Failed to import encodings module" errors
+# that occur when the updater renames/replaces the exe between runs.
+#
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
-datas = [('ui', 'ui'), ('app', 'app')]
-binaries = []
-hiddenimports = ['pandas', 'openpyxl', 'PIL']
-tmp_ret = collect_all('openpyxl')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pillow')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+datas = [
+    ('.tcl/tcl8.6',  'tcl8.6'),
+    ('.tcl/tk8.6',   'tk8.6'),
+    ('version.txt',  '.'),       # bundled inside the folder; updater replaces it
+    ('icon.ico',     '.'),
+]
+binaries       = []
+hiddenimports  = [
+    'app.gui', 'tkinter', '_tkinter',
+    'pandas', 'openpyxl', 'PIL', 'PIL._tkinter_finder',
+    'xml.etree.ElementTree', 'pickle', 'logging', 'datetime',
+]
+hiddenimports += collect_submodules('app')
+hiddenimports += collect_submodules('ui')
 
+for pkg in ('openpyxl', 'PIL'):
+    tmp = collect_all(pkg)
+    datas         += tmp[0]
+    binaries      += tmp[1]
+    hiddenimports += tmp[2]
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
-    excludes=['pytest', 'tkinter'],
+    runtime_hooks=['runtime_tk_hook.py'],
+    excludes=['pytest'],
     noarchive=False,
     optimize=0,
 )
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    [],                     # <-- empty: binaries go into COLLECT (onedir)
+    exclude_binaries=True,  # <-- key: keeps DLLs beside the exe
     name='ColorChemSystem',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,              # UPX can break DLL loading on some systems
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -45,4 +63,15 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['icon.ico'],
+)
+
+# COLLECT puts everything (exe + DLLs + data) into dist/ColorChemSystem/
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='ColorChemSystem',
 )

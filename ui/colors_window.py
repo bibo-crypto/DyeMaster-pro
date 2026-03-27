@@ -7,27 +7,18 @@ from tkinter import ttk, messagebox
 import sqlite3
 from typing import Optional, Dict
 
-# استيراد النماذج
-try:
-    from app.models import Color
-    from app.database import DatabaseManager
-    from app.config import DYE_TYPES
-except ImportError:
-    try:
-        from app.models import Color
-        from app.database import DatabaseManager
-        from app.config import DYE_TYPES
-    except ImportError:
-        from app.models import Color
-        from app.database import DatabaseManager
-        from app.config import DYE_TYPES
+from app.models import Color
+from app.database import DatabaseManager
+from app.config import DYE_TYPES
+from app.utils import parse_percentage_input, parse_number_input
 
 
 def _show_on_top(window, parent):
-    """Ensure new windows open above their parent."""
+    """Make child windows modal and keep them above parent."""
     try:
         window.lift()
         window.focus_force()
+        window.grab_set()
         window.attributes("-topmost", True)
         window.after(250, lambda: window.attributes("-topmost", False))
     except Exception:
@@ -197,7 +188,7 @@ class ColorsWindow:
         )
         self.resa_entry = ttk.Entry(form_frame, textvariable=self.resa_var, width=30)
         self.resa_entry.grid(row=5, column=1, padx=5, pady=8, sticky="w")
-        self.resa_entry.insert(0, "0.00")
+        self.resa_entry.insert(0, "100")
 
         # معلومات إضافية (فقط للتعديل)
         if not self.is_new_color:
@@ -288,7 +279,13 @@ class ColorsWindow:
                 self.dye_type_var.set(getattr(color, 'dye_type', ''))
                 self.supplier_var.set(getattr(color, 'supplier', ''))
                 self.price_var.set(str(getattr(color, 'price_kg', 0)))
-                self.resa_var.set(str(getattr(color, 'resa_percent', 0)))
+                resa_value = getattr(color, 'resa_percent', 100)
+                try:
+                    resa_float = float(resa_value)
+                    resa_str = str(int(resa_float)) if resa_float.is_integer() else str(resa_float)
+                except (TypeError, ValueError):
+                    resa_str = "100"
+                self.resa_var.set(resa_str)
 
                 # تحديث معلومات إضافية
                 if hasattr(self, 'info_label'):
@@ -326,7 +323,7 @@ class ColorsWindow:
 
             # التحقق من السعر
             try:
-                price = float(self.price_var.get().strip() or "0")
+                price = parse_number_input(self.price_var.get().strip() or "0", default=0.0)
                 if price < 0:
                     return False, "Price cannot be negative"
             except ValueError:
@@ -334,11 +331,11 @@ class ColorsWindow:
 
             # التحقق من نسبة الصباغة
             try:
-                resa = float(self.resa_var.get().strip() or "0")
-                if resa < 0 or resa > 100:
-                    return False, "Resa percentage must be between 0 and 100"
+                resa = parse_percentage_input(self.resa_var.get().strip() or "100")
+                if resa < 0:
+                    return False, "Resa percentage must be zero or positive"
             except ValueError:
-                return False, "Invalid resa percentage value"
+                return False, "RESA must use English digits only (0-9), e.g. 85 or 85.5"
 
             return True, ""
 
@@ -360,8 +357,8 @@ class ColorsWindow:
                 'name': self.name_var.get().strip(),
                 'dye_type': self.dye_type_var.get().strip(),
                 'supplier': self.supplier_var.get().strip(),
-                'price_kg': float(self.price_var.get().strip() or "0"),
-                'resa_percent': float(self.resa_var.get().strip() or "0")
+                'price_kg': parse_number_input(self.price_var.get().strip() or "0", default=0.0),
+                'resa_percent': parse_percentage_input(self.resa_var.get().strip() or "100")
             }
 
             # التحقق مما إذا كان اللون موجوداً بالفعل (لحالة الإضافة الجديدة)
@@ -525,8 +522,7 @@ class ColorsWindow:
         dialog = tk.Toplevel(self.window)
         dialog.title("Color Deletion Options")
         dialog.geometry("500x300")
-        dialog.transient(self.window)
-        dialog.grab_set()
+        _show_on_top(dialog, self.window)
 
         # Center the dialog
         dialog.update_idletasks()

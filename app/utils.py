@@ -1,5 +1,5 @@
-"""
-دوال مساعدة
+﻿"""
+Ø¯ÙˆØ§Ù„ Ù…Ø³Ø§Ø¹Ø¯Ø©
 """
 import math
 from typing import Any
@@ -17,18 +17,18 @@ def _is_missing(value: Any) -> bool:
 
 def clean_color_code(code: Any) -> str:
     """
-    تنظيف كود اللون
+    ØªÙ†Ø¸ÙŠÙ ÙƒÙˆØ¯ Ø§Ù„Ù„ÙˆÙ†
     """
     if _is_missing(code):
         return ""
 
     code_str = str(code).strip()
 
-    # إزالة .0 من النهاية
+    # Ø¥Ø²Ø§Ù„Ø© .0 Ù…Ù† Ø§Ù„Ù†Ù‡Ø§ÙŠØ©
     if '.' in code_str:
         parts = code_str.split('.')
         if len(parts) == 2:
-            # إذا كان الجزء العشري أصفار فقط
+            # Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ø¬Ø²Ø¡ Ø§Ù„Ø¹Ø´Ø±ÙŠ Ø£ØµÙØ§Ø± ÙÙ‚Ø·
             if parts[1].replace('0', '') == '':
                 code_str = parts[0]
 
@@ -38,7 +38,7 @@ def clean_color_code(code: Any) -> str:
 
 
 def clean_recipe_code(code: Any) -> str:
-    """تنظيف كود الريتشتة"""
+    """ØªÙ†Ø¸ÙŠÙ ÙƒÙˆØ¯ Ø§Ù„Ø±ÙŠØªØ´ØªØ©"""
     import re
     if _is_missing(code):
         return ""
@@ -50,35 +50,112 @@ def clean_recipe_code(code: Any) -> str:
     return code_str.zfill(6)
 
 
+def parse_percentage_input(value: Any, default: float = 100.0) -> float:
+    """Parse RESA percentage using English digits only (0-9 and optional dot)."""
+    if _is_missing(value):
+        return default
+
+    value_str = str(value).strip()
+    if not value_str:
+        return default
+
+    # Allow optional trailing percent symbols, but enforce English numeric format.
+    value_str = value_str.replace('%', '').strip()
+    if not value_str:
+        return default
+
+    import re
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value_str):
+        raise ValueError(
+            "RESA must use English digits only (0-9). Use '.' for decimals, e.g. 85 or 85.5"
+        )
+    return float(value_str)
+
+def parse_number_input(value: Any, default: float = 0.0) -> float:
+    """Parse numeric user input for price/amount fields."""
+    if _is_missing(value):
+        return default
+
+    value_str = str(value).strip()
+    if not value_str:
+        return default
+
+    # Strip common currency prefixes/symbols.
+    normalized = (
+        value_str
+        .replace("EUR", "")
+        .replace("€", "")
+        .replace("â‚¬", "")
+        .strip()
+    )
+
+    # Normalize Arabic/Persian digits safely using unicode escapes.
+    arabic_digits = "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"
+    persian_digits = "\u06F0\u06F1\u06F2\u06F3\u06F4\u06F5\u06F6\u06F7\u06F8\u06F9"
+    digit_map = {ord(ch): str(i) for i, ch in enumerate(arabic_digits)}
+    digit_map.update({ord(ch): str(i) for i, ch in enumerate(persian_digits)})
+    normalized = normalized.translate(digit_map)
+
+    normalized = (
+        normalized
+        .replace('\u066B', '.')
+        .replace(',', '.')
+        .replace('\u060C', '.')
+        .replace('\u066C', '')
+        .replace(' ', '')
+    )
+    # Remove any remaining non-numeric symbols (currency artifacts, etc.).
+    import re
+    normalized = re.sub(r"[^0-9.\-]", "", normalized)
+    try:
+        return float(normalized)
+    except ValueError:
+        raise ValueError(f"Invalid numeric value: {value}")
+
+
 def validate_color_code_input(code: str) -> tuple[bool, str]:
-    """التحقق من صحة كود اللون - استدعاء المدقق المركزي"""
+    """Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµØ­Ø© ÙƒÙˆØ¯ Ø§Ù„Ù„ÙˆÙ† - Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ù…Ø¯Ù‚Ù‚ Ø§Ù„Ù…Ø±ÙƒØ²ÙŠ"""
     from app.validators import Validators
     return Validators.validate_color_code(code)
 
 
 def validate_recipe_code_input(code: str) -> tuple[bool, str]:
-    """التحقق من صحة كود الوصفة - استدعاء المدقق المركزي"""
+    """Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµØ­Ø© ÙƒÙˆØ¯ Ø§Ù„ÙˆØµÙØ© - Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ù…Ø¯Ù‚Ù‚ Ø§Ù„Ù…Ø±ÙƒØ²ÙŠ"""
     from app.validators import Validators
     return Validators.validate_recipe_code(code)
 
 
+def _format_number_no_trailing_zeros(value: float, decimals: int = 2) -> str:
+    """Format a number without trailing zeros after decimal point."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return "0"
+
+    formatted = f"{f:.{decimals}f}".rstrip('0').rstrip('.')
+    return formatted if formatted != "" else "0"
+
+
 def format_currency(amount: float) -> str:
-    """تنسيق العملة"""
-    return f"€{amount:.2f}"
+    """ØªÙ†Ø³ÙŠÙ‚ Ø§Ù„Ø¹Ù…Ù„Ø©"""
+    try:
+        return f"EUR {float(amount):.2f}"
+    except (TypeError, ValueError):
+        return "EUR 0.00"
 
 
 def format_percentage(value: float) -> str:
-    """تنسيق النسبة المئوية"""
-    return f"{value:.2f}%"
+    """ØªÙ†Ø³ÙŠÙ‚ Ø§Ù„Ù†Ø³Ø¨Ø© Ø§Ù„Ù…Ø¦ÙˆÙŠØ©"""
+    return f"{_format_number_no_trailing_zeros(value)}%"
 
 
 def get_current_timestamp() -> str:
-    """الحصول على الطابع الزمني الحالي"""
+    """Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ Ø§Ù„Ø·Ø§Ø¨Ø¹ Ø§Ù„Ø²Ù…Ù†ÙŠ Ø§Ù„Ø­Ø§Ù„ÙŠ"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def calculate_age_from_timestamp(timestamp: str) -> str:
-    """حساب العمر من الطابع الزمني"""
+    """Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¹Ù…Ø± Ù…Ù† Ø§Ù„Ø·Ø§Ø¨Ø¹ Ø§Ù„Ø²Ù…Ù†ÙŠ"""
     try:
         created_date = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         delta = datetime.now() - created_date
@@ -100,3 +177,4 @@ def calculate_age_from_timestamp(timestamp: str) -> str:
                 return f"{minutes} minute{'s' if minutes > 1 else ''}"
     except:
         return "Unknown"
+

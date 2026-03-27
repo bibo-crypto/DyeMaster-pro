@@ -10,16 +10,17 @@ from app.database import DatabaseManager
 from app.calculator import ChemicalCalculator, CostCalculator
 from app.pdf_exporter import PDFExporter
 from app.models import Recipe, Color
-from app.utils import get_current_timestamp
+from app.utils import get_current_timestamp, parse_percentage_input
 from app.config import DYE_TYPES
 from app.lab_settings import load_lab_settings, save_lab_settings
 
 
 def _show_on_top(window, parent):
-    """Ensure new windows open above their parent."""
+    """Make child windows modal and keep them above parent."""
     try:
         window.lift()
         window.focus_force()
+        window.grab_set()
         window.attributes("-topmost", True)
         window.after(250, lambda: window.attributes("-topmost", False))
     except Exception:
@@ -34,12 +35,8 @@ class _AddMissingColorsWindow:
         self.on_success_callback = on_success_callback
 
         self.window = tk.Toplevel(parent)
-        # Keep this dialog attached to the PDF import window so it always
-        # appears above it.
-        try:
-            self.window.transient(parent)
-        except Exception:
-            pass
+        # Keep this dialog as a normal top-level window so OS title-bar
+        # controls remain available.
         _show_on_top(self.window, parent)
         # Re-assert z-order after first paint to avoid being sent behind parent
         # on some Windows window-manager timing cases.
@@ -86,7 +83,7 @@ class _AddMissingColorsWindow:
         ).pack(pady=(4, 8))
         ttk.Label(
             main_frame,
-            text="Please provide a name and dye type for each new color.",
+            text="Please provide a name, dye type, and RESA (%) for each new color.",
             style='MissingNote.TLabel'
         ).pack(pady=(0, 12))
 
@@ -132,7 +129,18 @@ class _AddMissingColorsWindow:
             )
             dye_type_combo.grid(row=0, column=3, padx=8, sticky=tk.EW)
 
-            self.color_entries.append({'code': color_info['code'], 'name_var': name_var, 'dye_type_var': dye_type_var})
+            ttk.Label(row_frame, text="Resa %:", style='MissingField.TLabel').grid(row=0, column=4, padx=8, sticky=tk.W)
+            default_resa = color_info.get('resa_percent', 100)
+            resa_var = tk.StringVar(value=str(default_resa))
+            resa_entry = ttk.Entry(row_frame, textvariable=resa_var, width=10, style='Missing.TEntry')
+            resa_entry.grid(row=0, column=5, padx=8, sticky=tk.W)
+
+            self.color_entries.append({
+                'code': color_info['code'],
+                'name_var': name_var,
+                'dye_type_var': dye_type_var,
+                'resa_var': resa_var
+            })
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -149,6 +157,7 @@ class _AddMissingColorsWindow:
             code = entry['code']
             name = entry['name_var'].get().strip()
             dye_type = entry['dye_type_var'].get().strip()
+            resa_raw = entry['resa_var'].get().strip()
 
             if not name:
                 messagebox.showerror("Error", f"Please provide a name for color code {code}.", parent=self.window)
@@ -156,6 +165,14 @@ class _AddMissingColorsWindow:
 
             if not dye_type:
                 messagebox.showerror("Error", f"Please select a dye type for color code {code}.", parent=self.window)
+                return
+
+            try:
+                resa_percent = parse_percentage_input(resa_raw, default=100.0)
+                if resa_percent <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Error", f"Please enter a valid RESA % for color code {code}.", parent=self.window)
                 return
 
             if self.db.get_color_by_code(code):
@@ -167,7 +184,7 @@ class _AddMissingColorsWindow:
                 dye_type=dye_type,
                 supplier='',
                 price_kg=0.0,
-                resa_percent=0.0,
+                resa_percent=resa_percent,
                 created_at=get_current_timestamp(),
                 updated_at=get_current_timestamp()
             )
@@ -205,6 +222,7 @@ class PDFImportWindow:
         self.lab_rapporto_var = tk.StringVar(value="")
 
         self.window = tk.Toplevel(parent)
+        # Keep as normal top-level window so OS title-bar controls remain available.
         _show_on_top(self.window, parent)
         self.window.title("Import Recipe from PDF")
         
@@ -225,7 +243,11 @@ class PDFImportWindow:
 
         self.configure_styles()
         self.setup_ui()
-        self.window.bind_all("<<LabSettingsChanged>>", self._on_lab_settings_changed)
+        self._lab_settings_bind_id = self.parent.bind(
+            "<<LabSettingsChanged>>",
+            self._on_lab_settings_changed,
+            add="+",
+        )
         self.window.bind("<Destroy>", self._on_window_destroy, add="+")
 
     def _on_window_destroy(self, event=None):
@@ -233,7 +255,9 @@ class PDFImportWindow:
         if event is not None and getattr(event, "widget", None) is not self.window:
             return
         try:
-            self.window.unbind_all("<<LabSettingsChanged>>")
+            if getattr(self, "_lab_settings_bind_id", None):
+                self.parent.unbind("<<LabSettingsChanged>>", self._lab_settings_bind_id)
+                self._lab_settings_bind_id = None
         except Exception:
             pass
 
@@ -250,16 +274,14 @@ class PDFImportWindow:
 
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
-        # إطار العنوان
         title_frame = ttk.Frame(self.window, padding=10)
         title_frame.pack(fill=tk.X)
 
         ttk.Label(title_frame, text="📄 Import Recipe from PDF",
-                  font=('Arial', 14, 'bold')).pack()
-
+                  font=('Arial', 14, 'bold')).pack(anchor='w')
         ttk.Label(title_frame,
                   text="Upload a laboratory recipe PDF to import colors and calculate chemicals automatically",
-                  font=('Arial', 10)).pack(pady=5)
+                  font=('Arial', 10)).pack(anchor='w', pady=2)
 
         # زر رفع الملف
         upload_frame = ttk.LabelFrame(self.window, text="Upload PDF File", padding=15)
@@ -424,6 +446,18 @@ class PDFImportWindow:
             pass
         return fallback
 
+    def _filter_nonzero_chemicals(self, chemicals):
+        """Return only chemicals with quantity > 0."""
+        filtered = []
+        for chemical in chemicals or []:
+            try:
+                qty = float(getattr(chemical, "quantity", 0) or 0)
+            except (TypeError, ValueError):
+                qty = 0.0
+            if qty > 0:
+                filtered.append(chemical)
+        return filtered
+
     def _update_lab_rapporto(self):
         sample_g = self._safe_positive_float(self.lab_peso_var.get(), 10.0)
         volume_ml = self._safe_positive_float(self.lab_volume_var.get(), 150.0)
@@ -446,7 +480,7 @@ class PDFImportWindow:
         self.lab_peso_var.set(f"{saved['sample_g']:.2f}")
         self.lab_volume_var.set(f"{saved['volume_ml']:.2f}")
         self._update_lab_rapporto()
-        self.window.event_generate("<<LabSettingsChanged>>", when="tail")
+        self.parent.event_generate("<<LabSettingsChanged>>", when="tail")
         messagebox.showinfo("Saved", "Lab parameters saved for the whole program.", parent=self.window)
 
     def _on_lab_settings_changed(self, _event=None):
@@ -629,7 +663,8 @@ class PDFImportWindow:
             self.total_percent_var.set(f"{total_percent:.4f}%")
 
             # استخدام النوع المهيمن للحساب
-            self.chemicals = ChemicalCalculator.calculate_chemicals(total_percent, dominant_type)
+            raw_chemicals = ChemicalCalculator.calculate_chemicals(total_percent, dominant_type)
+            self.chemicals = self._filter_nonzero_chemicals(raw_chemicals)
 
             # تحديث حقل نوع الصبغة لإظهار النوع المهيمن
             self.dye_type_var.set(dominant_type)
@@ -750,6 +785,7 @@ class PDFImportWindow:
 
             from app.calculator import ChemicalCalculator
             chemicals = ChemicalCalculator.calculate_chemicals(total_percentage, dominant_type)
+            chemicals = self._filter_nonzero_chemicals(chemicals)
 
             recipe_id = self.db.add_recipe(recipe_obj, colors_to_save, chemicals)
 
@@ -820,7 +856,7 @@ class PDFImportWindow:
             recipe_details = RecipeDetails(
                 recipe=recipe_obj,
                 colors=colors_data,
-                chemicals=self.chemicals,
+                chemicals=self._filter_nonzero_chemicals(self.chemicals),
                 total_percentage=sum(c.get('percentage', 0) for c in colors_data),
                 dominant_type=self.dye_type_var.get(),
                 cost=total_cost

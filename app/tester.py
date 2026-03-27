@@ -15,7 +15,13 @@ from app.database import DatabaseManager
 from app.calculator import ChemicalCalculator, CostCalculator
 from app.pdf_exporter import PDFExporter
 from app.models import Color, Recipe, Chemical
-from app.utils import *
+from app.utils import (
+    clean_recipe_code,
+    format_currency,
+    format_percentage,
+    get_current_timestamp,
+    validate_recipe_code_input,
+)
 
 
 def _configure_stdout_for_unicode() -> None:
@@ -596,10 +602,10 @@ class SystemTester:
             print("   - Testing format_percentage...")
             percent = 2.5
             formatted_percent = format_percentage(percent)
-            if formatted_percent == "2.50%":
+            if formatted_percent == "2.5%":
                  print("     ✓ format_percentage works as expected.")
             else:
-                print(f"   ⚠️ format_percentage: -> Actual '{formatted_percent}', Expected '2.50%'")
+                print(f"   ⚠️ format_percentage: -> Actual '{formatted_percent}', Expected '2.5%'")
                 all_passed = False
 
             return all_passed
@@ -874,7 +880,11 @@ def run_tests_from_gui(parent):
 
         # Make window modal
         test_window.transient(parent)
+        test_window.lift()
+        test_window.focus_force()
         test_window.grab_set()
+        test_window.attributes("-topmost", True)
+        test_window.after(250, lambda: test_window.attributes("-topmost", False))
 
         # عنوان
         title_label = ttk.Label(test_window, text="🔬 System Test Suite",

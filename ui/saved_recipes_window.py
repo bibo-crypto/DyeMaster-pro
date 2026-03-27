@@ -10,10 +10,11 @@ from app.pdf_exporter import PDFExporter
 
 
 def _show_on_top(window, parent):
-    """Ensure new windows open above their parent."""
+    """Make child windows modal and keep them above parent."""
     try:
         window.lift()
         window.focus_force()
+        window.grab_set()
         window.attributes("-topmost", True)
         window.after(250, lambda: window.attributes("-topmost", False))
     except Exception:
@@ -23,15 +24,18 @@ def _show_on_top(window, parent):
 class SavedRecipesWindow:
     """Ù†Ø§ÙØ°Ø© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©"""
 
-    def __init__(self, parent, db: DatabaseManager, recipe_id: Optional[int] = None):
+    def __init__(self, parent, db: DatabaseManager, recipe_id: Optional[int] = None, on_data_changed=None):
         self.parent = parent
         self.db = db
         self.selected_recipe_id = recipe_id
+        self.on_data_changed = on_data_changed
+        self.data_changed = False
         self.all_recipes_data = []  # ØªØ®Ø²ÙŠÙ† Ø¬Ù…ÙŠØ¹ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª Ù„Ù„Ø¨Ø­Ø«
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
         self.window.title("Saved Recipes - Ricette")
+        self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
         
         # Ø¶Ø¨Ø· Ø£Ø¨Ø¹Ø§Ø¯ Ø§Ù„Ù†Ø§ÙØ°Ø© Ù„ØªÙƒÙˆÙ† Ù…ØªØ¬Ø§ÙˆØ¨Ø©
         screen_width = self.window.winfo_screenwidth()
@@ -75,6 +79,17 @@ class SavedRecipesWindow:
         # Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ recipe_id Ù…Ø­Ø¯Ø¯ØŒ Ø¹Ø±Ø¶ ØªÙØ§ØµÙŠÙ„Ù‡
         if self.selected_recipe_id:
             self.select_recipe_by_id(self.selected_recipe_id)
+
+    def _notify_data_changed(self):
+        """Notify parent window to refresh data when recipes are modified."""
+        if callable(self.on_data_changed):
+            self.on_data_changed()
+
+    def _on_window_close(self):
+        """Ensure parent data is refreshed when closing after changes."""
+        if self.data_changed:
+            self._notify_data_changed()
+        self.window.destroy()
 
     def configure_styles(self):
         """ØªÙƒÙˆÙŠÙ† Ø£Ù†Ù…Ø§Ø· Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©"""
@@ -561,7 +576,7 @@ class SavedRecipesWindow:
             pdf_path = PDFExporter.export_recipe_to_pdf_auto(recipe_details)
 
             if pdf_path:
-                messagebox.showinfo("âœ… PDF Exported",
+                messagebox.showinfo("PDF Exported",
                                     f"Recipe exported successfully!\n\n"
                                     f"File saved to:\n{pdf_path}",
                                     parent=self.window)
@@ -592,8 +607,10 @@ class SavedRecipesWindow:
         if confirm:
             try:
                 self.db.delete_recipe(recipe_id)
+                self.data_changed = True
                 self.load_recipes()
                 self.clear_all_tabs()
+                self._notify_data_changed()
                 messagebox.showinfo("Success", f"Recipe '{recipe_name}' deleted successfully!", parent=self.window)
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete recipe: {str(e)}", parent=self.window)

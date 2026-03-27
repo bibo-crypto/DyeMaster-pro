@@ -54,7 +54,7 @@ class ColorManager:
                 dye_type=cleaned_data['dye_type'],
                 supplier=cleaned_data.get('supplier', ''),
                 price_kg=cleaned_data.get('price_kg', 0.0),
-                resa_percent=cleaned_data.get('resa_percent', 0.0),
+                resa_percent=cleaned_data.get('resa_percent', 100.0),
                 created_at=cleaned_data.get('created_at', ''),
                 updated_at=cleaned_data.get('updated_at', '')
             )
@@ -364,7 +364,7 @@ class DatabaseManager:
                     dye_type TEXT NOT NULL,
                     supplier TEXT,
                     price_kg REAL DEFAULT 0.0,
-                    resa_percent REAL DEFAULT 0.0,
+                    resa_percent REAL DEFAULT 100.0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -1293,33 +1293,65 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
-    def backup_database(self, once_per_day: bool = False) -> Optional[str]:
-        """إنشاء نسخة احتياطية من قاعدة البيانات"""
+    def backup_database(self, once_per_day: bool = False, always_latest: bool = False) -> Optional[str]:
+        """إنشاء نسخة احتياطية من قاعدة البيانات.
+
+        once_per_day: نسخة تاريخية مرة واحدة يومياً.
+        always_latest: نسخ إلى ColorChem_Backup_Latest.db في كل استدعاء (استبدال دائم).
+        """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             day_stamp = datetime.now().strftime("%Y%m%d")
             backup_dir = BACKUP_DIR
-            
+
             # التأكد من وجود مجلد النسخ الاحتياطية
             if not os.path.exists(backup_dir):
                 os.makedirs(backup_dir, exist_ok=True)
 
+            backup_files = []
+
+            # نسخ ملف النسخة الأخيرة دائماً
+            if always_latest:
+                latest_path = os.path.join(backup_dir, "ColorChem_Backup_Latest.db")
+                shutil.copy2(self.db_file, latest_path)
+                backup_files.append(latest_path)
+
+            # نسخة يومية مرة واحدة
             if once_per_day:
-                daily_prefix = f"ColorChem_Backup_{day_stamp}_"
-                for name in os.listdir(backup_dir):
-                    if name.startswith(daily_prefix) and name.endswith(".db"):
-                        return None
-            
-            # اسم ملف النسخة الاحتياطية
-            backup_file = os.path.join(backup_dir, f"ColorChem_Backup_{timestamp}.db")
-            
-            # نسخ قاعدة البيانات
-            shutil.copy2(self.db_file, backup_file)
-            
-            return backup_file
-            
+                daily_file = os.path.join(backup_dir, f"ColorChem_Backup_{day_stamp}.db")
+                if not os.path.exists(daily_file):
+                    shutil.copy2(self.db_file, daily_file)
+                    backup_files.append(daily_file)
+
+            # افتراضي: حفظ نسخة مؤرخة (سابقاً)
+            if not once_per_day and not always_latest:
+                archive_file = os.path.join(backup_dir, f"ColorChem_Backup_{timestamp}.db")
+                shutil.copy2(self.db_file, archive_file)
+                backup_files.append(archive_file)
+
+            if backup_files:
+                return backup_files[-1]
+            return None
+
         except Exception as e:
             raise Exception(f"Failed to backup database: {str(e)}")
+
+    def restore_database(self, backup_file: str) -> bool:
+        """استعادة قاعدة البيانات من ملف نسخة احتياطية"""
+        try:
+            if not backup_file or not os.path.isfile(backup_file):
+                raise FileNotFoundError(f"Backup file not found: {backup_file}")
+
+            os.makedirs(os.path.dirname(self.db_file), exist_ok=True)
+            shutil.copy2(backup_file, self.db_file)
+
+            # تأكيد أن الملف الجديد قابل للقراءة
+            conn = sqlite3.connect(self.db_file)
+            conn.execute("SELECT name FROM sqlite_master LIMIT 1")
+            conn.close()
+            return True
+        except Exception as e:
+            raise Exception(f"Failed to restore database: {str(e)}")
 
     # ============ دوال Pagination ============
 

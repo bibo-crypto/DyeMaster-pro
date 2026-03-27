@@ -57,6 +57,14 @@ class PDFExporter:
         return getattr(color, key, fallback)
 
     @staticmethod
+    def _lab_adjusted_percentage(color) -> float:
+        base_percentage = max(0.0, PDFExporter._to_float(PDFExporter._color_value(color, "percentage", 0.0), 0.0))
+        resa_percent = PDFExporter._to_float(PDFExporter._color_value(color, "resa_percent", 100.0), 100.0)
+        if resa_percent <= 0:
+            resa_percent = 100.0
+        return base_percentage * (resa_percent / 100.0)
+
+    @staticmethod
     def _chemical_row(chemical, lab_volume_ml):
         code = getattr(chemical, "code", "")
         name = getattr(chemical, "name", "")
@@ -76,9 +84,46 @@ class PDFExporter:
             lab_qty = qty * factor
 
         lab_unit = PDFExporter._normalize_lab_unit(unit)
-        prod_text = f"{qty:.2f} {unit}".strip()
-        lab_text = f"{lab_qty:.2f} {lab_unit}".strip()
+        prod_text = f"{PDFExporter._format_number_for_pdf(qty)} {unit}".strip()
+        lab_text = f"{PDFExporter._format_lab_for_pdf(lab_qty)} {lab_unit}".strip()
         return [str(code), str(name), prod_text, lab_text]
+
+    @staticmethod
+    def _format_number_for_pdf(value, decimals=1) -> str:
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        rounded = round(n, decimals)
+        if abs(rounded - int(rounded)) < 1e-9:
+            return str(int(rounded))
+        return f"{rounded:.{decimals}f}"
+
+    @staticmethod
+    def _format_percentage_for_pdf(value) -> str:
+        """Keep decimals as needed, avoid rounding tiny percentages to zero."""
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        rounded = round(n, 4)
+        if abs(rounded - int(rounded)) < 1e-9:
+            return str(int(rounded))
+        s = f"{rounded:.4f}".rstrip("0").rstrip(".")
+        return s
+
+    @staticmethod
+    def _format_lab_for_pdf(value) -> str:
+        """For lab quantities: integer if whole, else up to 2 decimals."""
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        rounded = round(n, 2)
+        if abs(rounded - int(rounded)) < 1e-9:
+            return str(int(rounded))
+        s = f"{rounded:.2f}".rstrip("0").rstrip(".")
+        return s
 
     @staticmethod
     def _normalize_lab_unit(unit: str) -> str:
@@ -109,8 +154,8 @@ class PDFExporter:
         # Colors are treated as liquids in lab basis.
         colors_liquid_ml = 0.0
         for color in getattr(recipe_details, "colors", []) or []:
-            percentage = PDFExporter._to_float(PDFExporter._color_value(color, "percentage", 0.0), 0.0)
-            colors_liquid_ml += max(0.0, percentage) * lab_sample_g
+            adjusted_percentage = PDFExporter._lab_adjusted_percentage(color)
+            colors_liquid_ml += adjusted_percentage * lab_sample_g
 
         # Chemicals are defined per liter in most formulas; convert to lab-bath basis first.
         chemicals_liquid_ml = 0.0
@@ -187,12 +232,12 @@ class PDFExporter:
             ["Recipe Code", str(recipe_code)],
             ["Recipe Name", str(recipe_name)],
             ["Created At", str(created_at)],
-            ["Peso", f"{lab_sample_g:.2f} g"],
-            ["Volume", f"{lab_volume_ml:.2f} ml"],
+            ["Peso", f"{PDFExporter._format_number_for_pdf(lab_sample_g)} g"],
+            ["Volume", f"{PDFExporter._format_number_for_pdf(lab_volume_ml)} ml"],
             ["Rapporto Bagno", rapporto_bagno],
-            ["Total Percentage", f"{total_percentage:.2f}%"],
+            ["Total Percentage", f"{PDFExporter._format_percentage_for_pdf(total_percentage)}%"],
             ["Dominant Type", str(getattr(recipe_details, "dominant_type", ""))],
-            ["Estimated Cost", f"EUR {PDFExporter._to_float(getattr(recipe_details, 'cost', 0.0)):.2f}"],
+            ["Estimated Cost", f"EUR {PDFExporter._format_number_for_pdf(PDFExporter._to_float(getattr(recipe_details, 'cost', 0.0)), decimals=1)}"],
         ]
         info_table = Table(info_data, colWidths=[140, 340])
         info_table.setStyle(TableStyle([
@@ -204,19 +249,24 @@ class PDFExporter:
         elements.append(info_table)
         elements.append(Spacer(1, 16))
 
-        colors_rows = [["Code", "Name", "Production Qty", "Lab Qty"]]
+        colors_rows = [["Code", "Name", "Production Qty", "Resa", "Lab Qty"]]
         for color in getattr(recipe_details, "colors", []) or []:
             color_code = PDFExporter._color_value(color, "code")
             color_name = PDFExporter._color_value(color, "name")
             percentage = PDFExporter._to_float(PDFExporter._color_value(color, "percentage", 0.0))
+            resa_percent = PDFExporter._to_float(PDFExporter._color_value(color, "resa_percent", 100.0), 100.0)
+            if resa_percent <= 0:
+                resa_percent = 100.0
+            adjusted_percentage = PDFExporter._lab_adjusted_percentage(color)
             # Lab color quantity scales with sample weight.
             # For 10 g sample: 0.8 -> 8 ml
-            lab_color_qty = percentage * lab_sample_g
+            lab_color_qty = adjusted_percentage * lab_sample_g
             colors_rows.append([
                 str(color_code),
                 str(color_name),
-                f"{percentage:.2f} %/kg",
-                f"{lab_color_qty:.2f} ml",
+                f"{PDFExporter._format_percentage_for_pdf(percentage)} %/kg",
+                f"{PDFExporter._format_percentage_for_pdf(resa_percent)}%",
+                f"{PDFExporter._format_lab_for_pdf(lab_color_qty)} ml",
             ])
 
         elements.append(Paragraph("Colors", styles["Heading2"]))
@@ -250,9 +300,18 @@ class PDFExporter:
         elements.append(Paragraph(f"Water Required: {water_required_ml} ml", styles["Heading3"]))
         elements.append(Spacer(1, 6))
         per_liter_factor = lab_volume_ml / 1000.0
-        elements.append(Paragraph(f"Lab basis: {lab_sample_g:.2f} g yarn, {lab_volume_ml:.2f} ml bath.", styles["Normal"]))
-        elements.append(Paragraph(f"Color lab: %/kg x {lab_sample_g:.2f} = ml.", styles["Normal"]))
-        elements.append(Paragraph(f"Chemicals lab: (value per liter) x {per_liter_factor:.4f}.", styles["Normal"]))
+        elements.append(Paragraph(
+            f"Lab basis: {PDFExporter._format_number_for_pdf(lab_sample_g)} g yarn, {PDFExporter._format_number_for_pdf(lab_volume_ml)} ml bath.",
+            styles["Normal"]
+        ))
+        elements.append(Paragraph(
+            f"Color lab: (%/kg x RESA/100) x {PDFExporter._format_number_for_pdf(lab_sample_g)} = ml.",
+            styles["Normal"]
+        ))
+        elements.append(Paragraph(
+            f"Chemicals lab: (value per liter) x {PDFExporter._format_number_for_pdf(per_liter_factor, decimals=4)}.",
+            styles["Normal"]
+        ))
         elements.append(Spacer(1, 8))
 
         generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

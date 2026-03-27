@@ -5,31 +5,46 @@ import os
 import sys
 from pathlib import Path
 
-# إصدار التطبيق
-def _resolve_version_file_path():
-    """Return version.txt path near executable (frozen) or project root (dev)."""
+
+# ── Version resolution ──────────────────────────────────────────────────── #
+def _resolve_version_file_path() -> str:
+    """
+    Find version.txt regardless of how the app is run:
+
+      onedir frozen  : dist/ColorChemSystem/version.txt  (next to exe)
+      onefile frozen : Temp/_MEIxxxxxx/version.txt        (bundled)
+                       OR  dist/version.txt  (written by updater)
+      dev / source   : project_root/version.txt
+    """
     if getattr(sys, "frozen", False):
-        # First check _MEIPASS (bundled files location)
-        if hasattr(sys, "_MEIPASS"):
-            meipass_path = os.path.join(sys._MEIPASS, "version.txt")
-            if os.path.exists(meipass_path):
-                return meipass_path
-        # Fallback to directory next to executable
-        base_dir = os.path.dirname(sys.executable)
-    else:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_dir, "version.txt")
+        # 1. Check next to the executable first (written by updater after update)
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        candidate = os.path.join(exe_dir, "version.txt")
+        if os.path.exists(candidate):
+            return candidate
+
+        # 2. Check inside _MEIPASS (bundled at build time – onefile & onedir)
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidate = os.path.join(meipass, "version.txt")
+            if os.path.exists(candidate):
+                return candidate
+
+        # 3. Fallback: same directory as exe
+        return os.path.join(exe_dir, "version.txt")
+
+    # Dev / source mode
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(project_root, "version.txt")
 
 
-def _resolve_app_version(default="1.0.0"):
-    """Read app version from version.txt if present, fallback to default."""
-    version_file = _resolve_version_file_path()
+def _resolve_app_version(default: str = "1.0.0") -> str:
+    path = _resolve_version_file_path()
     try:
-        if os.path.exists(version_file):
-            with open(version_file, "r", encoding="utf-8") as f:
-                version = f.read().strip()
-                if version:
-                    return version
+        if os.path.exists(path):
+            ver = open(path, encoding="utf-8").read().strip()
+            if ver:
+                return ver
     except Exception:
         pass
     return default
@@ -37,19 +52,17 @@ def _resolve_app_version(default="1.0.0"):
 
 APP_VERSION = _resolve_app_version()
 
-# المسارات الأساسية
-# Use LOCALAPPDATA on Windows to avoid permission issues on home-root folders.
+# ── Data directories ────────────────────────────────────────────────────── #
+# Use LOCALAPPDATA so data survives app re-installs and avoids UAC issues.
 _base_data_dir = os.environ.get("LOCALAPPDATA", str(Path.home()))
-USER_DATA_DIR = os.path.join(_base_data_dir, "ColorChemSystem")
-DATA_DIR = os.path.join(USER_DATA_DIR, "data")
-EXPORT_DIR = os.path.join(USER_DATA_DIR, "exports")
-BACKUP_DIR = os.path.join(USER_DATA_DIR, "backups")
-LOG_DIR = os.path.join(USER_DATA_DIR, "logs")
+USER_DATA_DIR  = os.path.join(_base_data_dir, "ColorChemSystem")
+DATA_DIR       = os.path.join(USER_DATA_DIR, "data")
+EXPORT_DIR     = os.path.join(USER_DATA_DIR, "exports")
+BACKUP_DIR     = os.path.join(USER_DATA_DIR, "backups")
+LOG_DIR        = os.path.join(USER_DATA_DIR, "logs")
+DATABASE_FILE  = os.path.join(DATA_DIR, "colorchemsystem.db")
 
-# مسار قاعدة البيانات
-DATABASE_FILE = os.path.join(DATA_DIR, "colorchemsystem.db")
-
-# أنواع الصباغة
+# ── Dye types ───────────────────────────────────────────────────────────── #
 DYE_TYPES = [
     "Indanthren IN",
     "Indanthren IN SP",
@@ -63,30 +76,30 @@ DYE_TYPES = [
     "Reattivi Oltri",
 ]
 
-# إعدادات PDF
+# ── PDF settings ────────────────────────────────────────────────────────── #
 PDF_SETTINGS = {
-    "page_size": "A4",
-    "margin": 20,
-    "title_font_size": 16,
+    "page_size":        "A4",
+    "margin":           20,
+    "title_font_size":  16,
     "subtitle_font_size": 12,
-    "text_font_size": 10,
-    "logo_path": None
+    "text_font_size":   10,
+    "logo_path":        None,
 }
 
-# إعدادات الواجهة
+# ── GUI settings ────────────────────────────────────────────────────────── #
 GUI_SETTINGS = {
     "window_title": "ColorChem System",
-    "window_size": "1200x700",  # الحجم الذي تريده
-    "theme": "clam",
-    "font_family": "Arial",
-    "font_size": 10
+    "window_size":  "1200x700",
+    "theme":        "clam",
+    "font_family":  "Arial",
+    "font_size":    10,
 }
 
-# Chemical codes mapping
+# ── Chemical codes ──────────────────────────────────────────────────────── #
 CHEMICAL_CODES = {
-    '31180': 'IDROSOLFITO',
-    '31160': 'GLUCOSIO',
-    '31310': 'SODA CAUSTICA',
-    '31330': 'SODIO CARBONATO',
-    '31360': 'SOLFATO SODICO'
+    "31180": "IDROSOLFITO",
+    "31160": "GLUCOSIO",
+    "31310": "SODA CAUSTICA",
+    "31330": "SODIO CARBONATO",
+    "31360": "SOLFATO SODICO",
 }

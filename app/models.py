@@ -13,7 +13,7 @@ class Color:
     dye_type: str = ""
     supplier: str = ""          # إضافة هذا الحقل
     price_kg: float = 0.0
-    resa_percent: float = 0.0   # إضافة هذا الحقل أيضاً
+    resa_percent: float = 100.0   # إضافة هذا الحقل أيضاً
     created_at: str = ""
     updated_at: str = ""
 
@@ -26,8 +26,8 @@ class Color:
             errors.append("Color name is required")
         if self.price_kg < 0:
             errors.append("Price must be positive")
-        if self.resa_percent < 0 or self.resa_percent > 100:
-            errors.append("RESA must be between 0 and 100")
+        if self.resa_percent < 0:
+            errors.append("RESA must be zero or positive")
         return errors
 
 @dataclass

@@ -1,4 +1,4 @@
-"""
+﻿"""
 الواجهة الرئيسية
 """
 import tkinter as tk
@@ -76,6 +76,16 @@ class ColorChemSystemGUI:
 
         # تحميل البيانات
         self.load_data()
+
+        # نسخ احتياطي يومي عند التشغيل (مرة واحدة فقط يومياً)
+        try:
+            daily_path = self.db.backup_database(once_per_day=True)
+            if daily_path:
+                print(f"[+] Daily startup backup created: {daily_path}")
+            else:
+                print("[=] Daily startup backup skipped (already created today).")
+        except Exception as e:
+            print(f"[-] Daily startup backup failed: {str(e)}")
 
         # ربط حدث إغلاق البرنامج بدالة النسخ الاحتياطي التلقائي
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -200,7 +210,14 @@ class ColorChemSystemGUI:
                     "Update Available",
                     f"New version {version} is available.\n\nNotes:\n{notes}\n\nInstall now?"
                 ):
-                    success = self.updater.download_and_install(download_info, version)
+                    # Backup database before update starts
+                    backup_path = None
+                    try:
+                        backup_path = self.db.backup_database()
+                    except Exception as e:
+                        messagebox.showwarning("Backup Failed", f"Failed to create database backup before update: {e}")
+
+                    success = self.updater.download_and_install(download_info, version, db_backup_path=backup_path)
                     if success:
                         messagebox.showinfo(
                             "Update",
@@ -229,7 +246,13 @@ class ColorChemSystemGUI:
             "Test Update Ready",
             f"Latest release: v{version}\n\nNotes:\n{notes}\n\nInstall now?"
         ):
-            success = self.updater.download_and_install(download_info, version)
+            backup_path = None
+            try:
+                backup_path = self.db.backup_database()
+            except Exception as e:
+                messagebox.showwarning("Backup Failed", f"Failed to create database backup before update: {e}")
+
+            success = self.updater.download_and_install(download_info, version, db_backup_path=backup_path)
             if success:
                 messagebox.showinfo(
                     "Test Update",
@@ -425,25 +448,25 @@ Developer: Bibo Marcos
         toolbar_frame = ttk.Frame(self.main_frame)
         toolbar_frame.pack(fill=tk.X, pady=5)
 
+        # الإطار الأول: أزرار التطبيق الرئيسية
+        frame1 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1)
+        frame1.pack(side=tk.LEFT, padx=5, pady=2)
 
-        # الأزرار الأصلية
-        ttk.Button(toolbar_frame, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        # زر Backup
-        ttk.Button(toolbar_frame, text="🗄 Backup DB",
-                   command=self.backup_database, style="Data.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(toolbar_frame, text="⬇ Import Data",
-                   command=self.import_data, style="Data.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame1, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame1, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame1, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame1, text="📄 Import PDF", command=self.open_pdf_import, style='Import.TButton').pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(toolbar_frame, text="📄 Import PDF",
-                   command=self.open_pdf_import, width=12, style='Import.TButton').pack(side=tk.LEFT, padx=5)
+        # الإطار الثاني: أزرار البيانات والتحديث (على اليسار مع مسافة)
+        frame2 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1)
+        frame2.pack(side=tk.LEFT, padx=(20, 5), pady=2)
 
-        ttk.Button(toolbar_frame, text="⬆ CHECK UPDATE",
-                   command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=(28, 5))
+        ttk.Button(frame2, text="⬇ Import Data", command=self.import_data, style="Data.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame2, text="🗄 Backup DB", command=self.backup_database, style="Data.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame2, text="⬆ CHECK UPDATE", command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=5)
 
         self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙 Dark", command=self.toggle_dark_mode, width=10)
-        self.dark_mode_button.pack(side=tk.RIGHT, padx=5)
+        self.dark_mode_button.pack(side=tk.RIGHT, padx=(0, 5))
 
 
     def open_pdf_import(self):
@@ -570,7 +593,10 @@ Developer: Bibo Marcos
                 _cleanup_child()
 
         try:
-            child_window.transient(self.root)
+            # Keep child windows as normal top-level windows so the OS title-bar
+            # controls (Close / Minimize / Maximize) remain available.
+            # Avoid using transient() here because on some Windows setups it can
+            # remove or disable the standard window controls.
             child_window.protocol("WM_DELETE_WINDOW", _on_child_close)
             child_window.bind("<Destroy>", _cleanup_child, add="+")
             self._bring_child_to_front(child_window)
@@ -1147,7 +1173,7 @@ Developer: Bibo Marcos
             from ui.saved_recipes_window import SavedRecipesWindow
             self._open_single_child_window(
                 "saved_recipes",
-                lambda: SavedRecipesWindow(self.root, self.db)
+                lambda: SavedRecipesWindow(self.root, self.db, on_data_changed=self.load_data)
             )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Saved Recipes window: {str(e)}")
@@ -1236,11 +1262,18 @@ Developer: Bibo Marcos
     def on_closing(self):
         """معالج حدث إغلاق البرنامج - عمل نسخة احتياطية تلقائية"""
         try:
-            backup_path = self.db.backup_database(once_per_day=True)
-            if backup_path:
-                print(f"[+] Auto backup created: {backup_path}")
+            # نسخة يومية إذا لم توجد بعد اليوم
+            daily_path = self.db.backup_database(once_per_day=True)
+            if daily_path:
+                print(f"[+] Daily auto backup created: {daily_path}")
             else:
-                print("[=] Auto backup skipped (already created today).")
+                print("[=] Daily auto backup skipped (already created today).")
+
+            # نسخة متجددة دائماً عند الإغلاق
+            latest_path = self.db.backup_database(always_latest=True)
+            if latest_path:
+                print(f"[+] Latest backup created/updated: {latest_path}")
+
         except Exception as e:
             print(f"[-] Auto backup failed: {str(e)}")
             # لا نمنع الإغلاق حتى إذا فشل الـ backup
