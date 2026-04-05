@@ -1,5 +1,5 @@
 """
-ColorChemSystem/app/models.py
+DyeMasterPro/app/models.py
 """
 from dataclasses import dataclass
 from typing import List, Optional

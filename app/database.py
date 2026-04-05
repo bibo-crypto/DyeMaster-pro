@@ -201,7 +201,7 @@ class ColorManager:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT id, code, name, dye_type, supplier, price_kg, resa_percent, created_at
+                SELECT id, code, name, dye_type, supplier, price_kg, resa_percent, created_at, updated_at
                 FROM colors 
                 WHERE id = ?
             """, (color_id,))
@@ -217,7 +217,7 @@ class ColorManager:
                     price_kg=row[5],
                     resa_percent=row[6],
                     created_at=row[7],
-                    updated_at=row[7]
+                    updated_at=row[8]
                 )
             return None
 
@@ -455,6 +455,14 @@ class DatabaseManager:
         """تهيئة قاعدة البيانات (للمرة الأولى)"""
         self.ensure_database_exists()
 
+    def _cache_key(self, name: str, *parts) -> str:
+        serialized = ":".join(str(part) for part in parts)
+        return f"db:{name}:{serialized}" if serialized else f"db:{name}"
+
+    def _invalidate_read_cache(self):
+        """مسح كاش القراءات بعد أي كتابة على قاعدة البيانات."""
+        cache_manager.clear()
+
     # ============ دوال الألوان ============
 
     def add_color(self, color: Color) -> int:
@@ -477,6 +485,7 @@ class DatabaseManager:
 
             conn.commit()
             color_id = cursor.lastrowid
+            self._invalidate_read_cache()
             return color_id
 
         except sqlite3.IntegrityError as e:
@@ -510,6 +519,8 @@ class DatabaseManager:
 
             affected = cursor.rowcount
             conn.commit()
+            if affected > 0:
+                self._invalidate_read_cache()
             return affected > 0
 
         except Exception as e:
@@ -549,6 +560,8 @@ class DatabaseManager:
             cursor.execute('DELETE FROM colors WHERE id = ?', (color_id,))
             affected = cursor.rowcount
             conn.commit()
+            if affected > 0:
+                self._invalidate_read_cache()
             return affected > 0
 
         except Exception as e:
@@ -572,6 +585,8 @@ class DatabaseManager:
             cursor.execute('DELETE FROM colors WHERE code = ?', (color_code,))
             affected = cursor.rowcount
             conn.commit()
+            if affected > 0:
+                self._invalidate_read_cache()
             return affected > 0
 
         except Exception as e:
@@ -604,6 +619,11 @@ class DatabaseManager:
         """الحصول على لون بواسطة ID"""
         conn = None
         try:
+            cache_key = self._cache_key("color_by_id", color_id)
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return cached
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
@@ -615,14 +635,15 @@ class DatabaseManager:
                                   supplier,
                                   price_kg,
                                   resa_percent,
-                                  created_at
+                                  created_at,
+                                  updated_at
                            FROM colors
                            WHERE id = ?
                            """, (color_id,))
 
             row = cursor.fetchone()
             if row:
-                return Color(
+                color_obj = Color(
                     id=row[0],
                     code=row[1],
                     name=row[2],
@@ -631,8 +652,10 @@ class DatabaseManager:
                     price_kg=row[5],
                     resa_percent=row[6],
                     created_at=row[7],
-                    updated_at=row[7]
+                    updated_at=row[8]
                 )
+                cache_manager.set(cache_key, color_obj)
+                return color_obj
             return None
 
         except sqlite3.Error as e:
@@ -648,6 +671,10 @@ class DatabaseManager:
             from app.utils import clean_color_code
             raw_code = str(color_code).strip() if color_code is not None else ""
             normalized_code = clean_color_code(color_code)
+            cache_key = self._cache_key("color_by_code", raw_code.lower(), normalized_code.lower())
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return cached
 
             conn = self.get_connection()
             cursor = conn.cursor()
@@ -669,7 +696,9 @@ class DatabaseManager:
                 # الحصول على أسماء الأعمدة
                 cursor.execute('PRAGMA table_info(colors)')
                 columns = [col[1] for col in cursor.fetchall()]
-                return self._get_color_from_row(row, columns)
+                color_obj = self._get_color_from_row(row, columns)
+                cache_manager.set(cache_key, color_obj)
+                return color_obj
             return None
 
         except Exception as e:
@@ -682,6 +711,11 @@ class DatabaseManager:
         """الحصول على جميع الألوان"""
         conn = None
         try:
+            cache_key = self._cache_key("all_colors")
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return cached
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
@@ -714,6 +748,7 @@ class DatabaseManager:
                 )
                 colors.append(color)
 
+            cache_manager.set(cache_key, colors)
             return colors
 
         except sqlite3.Error as e:
@@ -770,11 +805,17 @@ class DatabaseManager:
         """عدد الألوان"""
         conn = None
         try:
+            cache_key = self._cache_key("colors_count")
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return int(cached)
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('SELECT COUNT(*) FROM colors')
             count = cursor.fetchone()[0]
+            cache_manager.set(cache_key, int(count))
             return count
 
         except Exception:
@@ -793,29 +834,55 @@ class DatabaseManager:
             cursor = conn.cursor()
 
             # حساب إجمالي النسبة المئوية
-            total_percentage = sum(color_data.get('percentage', 0) for color_data in colors_data)
+            if not colors_data:
+                raise Exception("Recipe must contain at least one color")
+
+            resolved_colors = []
+            missing_codes = []
+            for color_data in colors_data:
+                code = str(color_data.get('code', '')).strip()
+                if not code:
+                    missing_codes.append("<empty>")
+                    continue
+
+                cursor.execute('SELECT id FROM colors WHERE code = ?', (code,))
+                color_row = cursor.fetchone()
+                if not color_row:
+                    missing_codes.append(code)
+                    continue
+
+                resolved_colors.append({
+                    'color_id': color_row[0],
+                    'percentage': float(color_data.get('percentage', 0))
+                })
+
+            if missing_codes:
+                unique_missing = sorted(set(missing_codes))
+                raise Exception(
+                    "Cannot save recipe. Unregistered color code(s): "
+                    + ", ".join(unique_missing)
+                )
+
+            if not resolved_colors:
+                raise Exception("Recipe must contain at least one valid color")
+
+            total_percentage = sum(item['percentage'] for item in resolved_colors)
 
             # إضافة الريتشت مع الأعمدة الجديدة
             cursor.execute('''
                            INSERT INTO recipes (recipe_code, name, colors_count, total_percentage, created_at)
                            VALUES (?, ?, ?, ?, ?)
                            ''',
-                           (recipe.recipe_code, recipe.name, len(colors_data), total_percentage, recipe.created_at))
+                           (recipe.recipe_code, recipe.name, len(resolved_colors), total_percentage, recipe.created_at))
 
             recipe_id = cursor.lastrowid
 
             # إضافة الألوان المرتبطة
-            for color_data in colors_data:
-                # البحث عن اللون باستخدام الكود
-                cursor.execute('SELECT id FROM colors WHERE code = ?', (color_data['code'],))
-                color_row = cursor.fetchone()
-
-                if color_row:
-                    color_id = color_row[0]
-                    cursor.execute('''
-                                   INSERT INTO recipe_colors (recipe_id, color_id, percentage)
-                                   VALUES (?, ?, ?)
-                                   ''', (recipe_id, color_id, color_data['percentage']))
+            for item in resolved_colors:
+                cursor.execute('''
+                               INSERT INTO recipe_colors (recipe_id, color_id, percentage)
+                               VALUES (?, ?, ?)
+                               ''', (recipe_id, item['color_id'], item['percentage']))
 
             # إضافة الكيماويات المحسوبة إذا كانت متوفرة
             if chemicals:
@@ -839,6 +906,7 @@ class DatabaseManager:
                                    ''', (recipe_id, code, name, quantity, unit))
 
             conn.commit()
+            self._invalidate_read_cache()
             return recipe_id
 
         except sqlite3.IntegrityError as e:
@@ -863,6 +931,11 @@ class DatabaseManager:
         """الحصول على ريتشت بواسطة ID"""
         conn = None
         try:
+            cache_key = self._cache_key("recipe_by_id", recipe_id)
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return cached
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
@@ -870,12 +943,14 @@ class DatabaseManager:
             row = cursor.fetchone()
 
             if row:
-                return Recipe(
+                recipe_obj = Recipe(
                     id=row[0],
                     recipe_code=row[1],
                     name=row[2],
                     created_at=row[3]
                 )
+                cache_manager.set(cache_key, recipe_obj)
+                return recipe_obj
             return None
 
         except Exception as e:
@@ -913,6 +988,11 @@ class DatabaseManager:
         """الحصول على جميع الريتشتات"""
         conn = None
         try:
+            cache_key = self._cache_key("all_recipes")
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return cached
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
@@ -928,6 +1008,7 @@ class DatabaseManager:
                     created_at=row[3]
                 ))
 
+            cache_manager.set(cache_key, recipes)
             return recipes
 
         except Exception as e:
@@ -944,6 +1025,11 @@ class DatabaseManager:
         """الحصول على تفاصيل الوصفة مع ألوانها"""
         conn = None
         try:
+            cache_key = self._cache_key("recipe_details", recipe_id)
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return cached
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
@@ -954,11 +1040,11 @@ class DatabaseManager:
                                   name,
                                   created_at,
                                   -- عدد الألوان
-                                  (SELECT COUNT(*) FROM recipe_colors WHERE recipe_id = id)        as colors_count,
+                                  (SELECT COUNT(*) FROM recipe_colors rc WHERE rc.recipe_id = r.id)        as colors_count,
                                   -- إجمالي النسبة المئوية للألوان
-                                  (SELECT SUM(percentage) FROM recipe_colors WHERE recipe_id = id) as total_percentage
-                           FROM recipes
-                           WHERE id = ?
+                                  (SELECT SUM(rc.percentage) FROM recipe_colors rc WHERE rc.recipe_id = r.id) as total_percentage
+                           FROM recipes r
+                           WHERE r.id = ?
                            """, (recipe_id,))
 
             recipe_row = cursor.fetchone()
@@ -1052,7 +1138,7 @@ class DatabaseManager:
 
             conn.close()
 
-            return {
+            result = {
                 'recipe': Recipe(
                     id=recipe_dict['id'],
                     recipe_code=recipe_dict['recipe_code'],
@@ -1065,6 +1151,8 @@ class DatabaseManager:
                 'total_percentage': recipe_dict.get('total_percentage', 0.0) or 0.0,
                 'total_cost': total_cost
             }
+            cache_manager.set(cache_key, result)
+            return result
 
         except Exception as e:
             raise Exception(f"Database error: {str(e)}")
@@ -1088,6 +1176,8 @@ class DatabaseManager:
             cursor.execute('DELETE FROM recipes WHERE id = ?', (recipe_id,))
             affected = cursor.rowcount
             conn.commit()
+            if affected > 0:
+                self._invalidate_read_cache()
             return affected > 0
 
         except Exception as e:
@@ -1114,6 +1204,7 @@ class DatabaseManager:
             cursor.execute('DELETE FROM colors WHERE id = ?', (color_id,))
             
             conn.commit()
+            self._invalidate_read_cache()
             return True
 
         except Exception as e:
@@ -1128,11 +1219,17 @@ class DatabaseManager:
         """عدد الريتشتات"""
         conn = None
         try:
+            cache_key = self._cache_key("recipes_count")
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return int(cached)
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('SELECT COUNT(*) FROM recipes')
             count = cursor.fetchone()[0]
+            cache_manager.set(cache_key, int(count))
             return count
 
         except Exception:
@@ -1297,7 +1394,7 @@ class DatabaseManager:
         """إنشاء نسخة احتياطية من قاعدة البيانات.
 
         once_per_day: نسخة تاريخية مرة واحدة يومياً.
-        always_latest: نسخ إلى ColorChem_Backup_Latest.db في كل استدعاء (استبدال دائم).
+        always_latest: نسخ إلى DyeMasterPro_Backup_Latest.db في كل استدعاء (استبدال دائم).
         """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1312,20 +1409,20 @@ class DatabaseManager:
 
             # نسخ ملف النسخة الأخيرة دائماً
             if always_latest:
-                latest_path = os.path.join(backup_dir, "ColorChem_Backup_Latest.db")
+                latest_path = os.path.join(backup_dir, "DyeMasterPro_Backup_Latest.db")
                 shutil.copy2(self.db_file, latest_path)
                 backup_files.append(latest_path)
 
             # نسخة يومية مرة واحدة
             if once_per_day:
-                daily_file = os.path.join(backup_dir, f"ColorChem_Backup_{day_stamp}.db")
+                daily_file = os.path.join(backup_dir, f"DyeMasterPro_Backup_{day_stamp}.db")
                 if not os.path.exists(daily_file):
                     shutil.copy2(self.db_file, daily_file)
                     backup_files.append(daily_file)
 
             # افتراضي: حفظ نسخة مؤرخة (سابقاً)
             if not once_per_day and not always_latest:
-                archive_file = os.path.join(backup_dir, f"ColorChem_Backup_{timestamp}.db")
+                archive_file = os.path.join(backup_dir, f"DyeMasterPro_Backup_{timestamp}.db")
                 shutil.copy2(self.db_file, archive_file)
                 backup_files.append(archive_file)
 
@@ -1531,6 +1628,86 @@ class DatabaseManager:
             
         except Exception as e:
             raise Exception(f"Advanced recipe search failed: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
+
+    def search_recipes(self, recipe_code_filter: str = "", name_filter: str = "") -> List[Recipe]:
+        """بحث بسيط في الوصفات بالكود والاسم."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            query = "SELECT id, recipe_code, name, created_at FROM recipes WHERE 1=1"
+            params = []
+
+            if recipe_code_filter:
+                query += " AND recipe_code LIKE ?"
+                params.append(f"%{recipe_code_filter}%")
+
+            if name_filter:
+                query += " AND name LIKE ?"
+                params.append(f"%{name_filter}%")
+
+            query += " ORDER BY created_at DESC"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            return [
+                Recipe(
+                    id=row[0],
+                    recipe_code=row[1],
+                    name=row[2],
+                    created_at=row[3] or ""
+                )
+                for row in rows
+            ]
+        except Exception as e:
+            raise Exception(f"Failed to search recipes: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
+
+    def get_recipe_colors_count(self, recipe_id: int) -> int:
+        """عدد الألوان داخل وصفة واحدة."""
+        conn = None
+        try:
+            cache_key = self._cache_key("recipe_colors_count", recipe_id)
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return int(cached)
+
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM recipe_colors WHERE recipe_id = ?", (recipe_id,))
+            count = int(cursor.fetchone()[0] or 0)
+            cache_manager.set(cache_key, count)
+            return count
+        except Exception:
+            return 0
+        finally:
+            if conn:
+                conn.close()
+
+    def get_recipe_total_percentage(self, recipe_id: int) -> float:
+        """إجمالي نسبة الألوان داخل وصفة واحدة."""
+        conn = None
+        try:
+            cache_key = self._cache_key("recipe_total_percentage", recipe_id)
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return float(cached)
+
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT SUM(percentage) FROM recipe_colors WHERE recipe_id = ?", (recipe_id,))
+            value = cursor.fetchone()[0]
+            result = float(value or 0.0)
+            cache_manager.set(cache_key, result)
+            return result
+        except Exception:
+            return 0.0
         finally:
             if conn:
                 conn.close()

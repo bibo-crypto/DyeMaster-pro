@@ -41,7 +41,7 @@ class SystemTester:
 
     def __init__(self, parent=None):
         self.parent = parent
-        self.test_db_file = os.path.join(tempfile.gettempdir(), "colorchemsystem_test.db")
+        self.test_db_file = os.path.join(tempfile.gettempdir(), "dyemasterpro_test.db")
         self._reset_test_database()
         self.db = DatabaseManager(self.test_db_file)
         self.test_results = []
@@ -60,7 +60,7 @@ class SystemTester:
     def run_full_test_suite(self):
         """تشغيل جميع الاختبارات"""
         print("=" * 60)
-        print("🚀 بدء الاختبار الشامل لنظام ColorChem")
+        print("🚀 بدء الاختبار الشامل لنظام DyeMaster Pro")
         print("=" * 60)
 
         self.test_results.clear()
@@ -96,10 +96,8 @@ class SystemTester:
                 self.errors.append((test_name, str(e), traceback.format_exc()))
                 print(f"   💥 {test_name} - خطأ: {str(e)}")
 
-        # عرض النتائج
-        self.display_results()
-
-        return len(self.errors) == 0
+        # عرض النتائج وإرجاع الحالة الحقيقية (نجاح/فشل)
+        return self.display_results()
 
     def test_database_connection(self):
         """اختبار اتصال قاعدة البيانات"""
@@ -975,7 +973,7 @@ def run_tests_from_gui(parent):
 
 # دالة للاستخدام المباشر من السكريبت
 if __name__ == "__main__":
-    print("Starting ColorChem System Tests...")
+    print("Starting DyeMaster Pro Tests...")
 
     # إنشاء نافذة Tkinter مخفية
     root = tk.Tk()

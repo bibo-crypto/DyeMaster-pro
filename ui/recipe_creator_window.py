@@ -11,6 +11,7 @@ from app.utils import clean_recipe_code, validate_recipe_code_input, get_current
 from app.models import Recipe
 from app.config import DYE_TYPES
 from app.lab_settings import load_lab_settings, save_lab_settings
+from ui.theme_tokens import LIGHT_THEME, configure_sub_button_style
 
 
 def _show_on_top(window, parent):
@@ -101,13 +102,7 @@ class RecipeCreatorWindow:
     def configure_styles(self):
         """ØªÙƒÙˆÙŠÙ† Ø£Ù†Ù…Ø§Ø· Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©"""
         style = ttk.Style(self.window)
-        style.configure('Sub.TButton',
-                        font=('Arial', 10, 'bold'),
-                        padding=6,
-                        background='#3498DB',
-                        foreground='white')
-        style.map('Sub.TButton',
-                  background=[('active', '#2980B9')])
+        configure_sub_button_style(style, 'Sub.TButton', LIGHT_THEME)
 
     def setup_ui(self):
         """Ø¥Ø¹Ø¯Ø§Ø¯ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…"""
@@ -163,28 +158,26 @@ class RecipeCreatorWindow:
         notebook.add(indanthren_frame, text="INDANTHREN")
 
         # Ø¥Ø·Ø§Ø± Ø§Ù„Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Indanthren
-        search_frame_ind = ttk.LabelFrame(indanthren_frame, text="Search INDANTHREN Colors", padding=8)
+        search_frame_ind = ttk.LabelFrame(indanthren_frame, text="INDANTHREN Filters", padding=8)
         search_frame_ind.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Label(search_frame_ind, text="Search by Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
+        ttk.Label(search_frame_ind, text="Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
         self.search_code_entry_ind = ttk.Entry(search_frame_ind, textvariable=self.search_code_var_ind, width=15)
         self.search_code_entry_ind.grid(row=0, column=1, padx=5, pady=3, sticky="w")
-        self.search_code_entry_ind.bind('<Return>', lambda e: self.perform_search_ind())
+        self.search_code_entry_ind.bind('<KeyRelease>', lambda e: self.perform_search_ind())
 
-        ttk.Label(search_frame_ind, text="Search by Name:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
+        ttk.Label(search_frame_ind, text="Name:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
         self.search_name_entry_ind = ttk.Entry(search_frame_ind, textvariable=self.search_name_var_ind, width=25)
         self.search_name_entry_ind.grid(row=0, column=3, padx=5, pady=3, sticky="w")
-        self.search_name_entry_ind.bind('<Return>', lambda e: self.perform_search_ind())
+        self.search_name_entry_ind.bind('<KeyRelease>', lambda e: self.perform_search_ind())
 
-        ttk.Button(search_frame_ind, text="Search",
-                   command=self.perform_search_ind, width=12, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
-        ttk.Button(search_frame_ind, text="Reset",
-                   command=self.reset_search_ind, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=3)
+        ttk.Button(search_frame_ind, text="Clear",
+                   command=self.reset_search_ind, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
 
         # Ø´Ø¬Ø±Ø© Ø£Ù„ÙˆØ§Ù† Indanthren
         self.indanthren_tree = ttk.Treeview(
             indanthren_frame,
-            columns=("code", "name", "dye_type", "price"),
+            columns=("code", "name", "dye_type", "supplier", "price", "resa", "created"),
             show="headings",
             height=7
         )
@@ -192,12 +185,18 @@ class RecipeCreatorWindow:
         self.indanthren_tree.heading("code", text="Color Code")
         self.indanthren_tree.heading("name", text="Color Name")
         self.indanthren_tree.heading("dye_type", text="Type")
+        self.indanthren_tree.heading("supplier", text="Supplier")
         self.indanthren_tree.heading("price", text="Price/kg")
+        self.indanthren_tree.heading("resa", text="RESA %")
+        self.indanthren_tree.heading("created", text="Create Date")
 
         self.indanthren_tree.column("code", width=90, anchor="center")
-        self.indanthren_tree.column("name", width=180, anchor="center")
+        self.indanthren_tree.column("name", width=150, anchor="center")
         self.indanthren_tree.column("dye_type", width=90, anchor="center")
-        self.indanthren_tree.column("price", width=70, anchor="center")
+        self.indanthren_tree.column("supplier", width=110, anchor="center")
+        self.indanthren_tree.column("price", width=75, anchor="center")
+        self.indanthren_tree.column("resa", width=70, anchor="center")
+        self.indanthren_tree.column("created", width=95, anchor="center")
 
         scrollbar_ind = ttk.Scrollbar(indanthren_frame, orient="vertical", command=self.indanthren_tree.yview)
         self.indanthren_tree.configure(yscrollcommand=scrollbar_ind.set)
@@ -212,28 +211,26 @@ class RecipeCreatorWindow:
         notebook.add(reattivi_frame, text="REATTIVI")
 
         # Ø¥Ø·Ø§Ø± Ø§Ù„Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Reattivi
-        search_frame_rea = ttk.LabelFrame(reattivi_frame, text="Search REATTIVI Colors", padding=8)
+        search_frame_rea = ttk.LabelFrame(reattivi_frame, text="REATTIVI Filters", padding=8)
         search_frame_rea.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Label(search_frame_rea, text="Search by Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
+        ttk.Label(search_frame_rea, text="Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
         self.search_code_entry_rea = ttk.Entry(search_frame_rea, textvariable=self.search_code_var_rea, width=15)
         self.search_code_entry_rea.grid(row=0, column=1, padx=5, pady=3, sticky="w")
-        self.search_code_entry_rea.bind('<Return>', lambda e: self.perform_search_rea())
+        self.search_code_entry_rea.bind('<KeyRelease>', lambda e: self.perform_search_rea())
 
-        ttk.Label(search_frame_rea, text="Search by Name:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
+        ttk.Label(search_frame_rea, text="Name:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
         self.search_name_entry_rea = ttk.Entry(search_frame_rea, textvariable=self.search_name_var_rea, width=25)
         self.search_name_entry_rea.grid(row=0, column=3, padx=5, pady=3, sticky="w")
-        self.search_name_entry_rea.bind('<Return>', lambda e: self.perform_search_rea())
+        self.search_name_entry_rea.bind('<KeyRelease>', lambda e: self.perform_search_rea())
 
-        ttk.Button(search_frame_rea, text="Search",
-                   command=self.perform_search_rea, width=12, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
-        ttk.Button(search_frame_rea, text="Reset",
-                   command=self.reset_search_rea, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=3)
+        ttk.Button(search_frame_rea, text="Clear",
+                   command=self.reset_search_rea, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
 
         # Ø´Ø¬Ø±Ø© Ø£Ù„ÙˆØ§Ù† Reattivi
         self.reattivi_tree = ttk.Treeview(
             reattivi_frame,
-            columns=("code", "name", "dye_type", "price"),
+            columns=("code", "name", "dye_type", "supplier", "price", "resa", "created"),
             show="headings",
             height=7
         )
@@ -241,12 +238,18 @@ class RecipeCreatorWindow:
         self.reattivi_tree.heading("code", text="Color Code")
         self.reattivi_tree.heading("name", text="Color Name")
         self.reattivi_tree.heading("dye_type", text="Type")
+        self.reattivi_tree.heading("supplier", text="Supplier")
         self.reattivi_tree.heading("price", text="Price/kg")
+        self.reattivi_tree.heading("resa", text="RESA %")
+        self.reattivi_tree.heading("created", text="Create Date")
 
         self.reattivi_tree.column("code", width=90, anchor="center")
-        self.reattivi_tree.column("name", width=180, anchor="center")
+        self.reattivi_tree.column("name", width=150, anchor="center")
         self.reattivi_tree.column("dye_type", width=90, anchor="center")
-        self.reattivi_tree.column("price", width=70, anchor="center")
+        self.reattivi_tree.column("supplier", width=110, anchor="center")
+        self.reattivi_tree.column("price", width=75, anchor="center")
+        self.reattivi_tree.column("resa", width=70, anchor="center")
+        self.reattivi_tree.column("created", width=95, anchor="center")
 
         scrollbar_rea = ttk.Scrollbar(reattivi_frame, orient="vertical", command=self.reattivi_tree.yview)
         self.reattivi_tree.configure(yscrollcommand=scrollbar_rea.set)
@@ -494,8 +497,10 @@ class RecipeCreatorWindow:
                     "code": getattr(color, 'code', ''),
                     "name": getattr(color, 'name', ''),
                     "dye_type": getattr(color, 'dye_type', ''),
+                    "supplier": getattr(color, 'supplier', ''),
                     "price_kg": float(getattr(color, 'price_kg', 0)),
-                    "resa_percent": float(getattr(color, 'resa_percent', 100) or 100)
+                    "resa_percent": float(getattr(color, 'resa_percent', 100) or 100),
+                    "created_at": str(getattr(color, 'created_at', '') or '')
                 }
             elif isinstance(color, dict):
                 # Ù‚Ø§Ù…ÙˆØ³
@@ -503,8 +508,10 @@ class RecipeCreatorWindow:
                     "code": color.get('code', ''),
                     "name": color.get('name', ''),
                     "dye_type": color.get('dye_type', ''),
+                    "supplier": color.get('supplier', ''),
                     "price_kg": float(color.get('price_kg', 0)),
-                    "resa_percent": float(color.get('resa_percent', 100) or 100)
+                    "resa_percent": float(color.get('resa_percent', 100) or 100),
+                    "created_at": str(color.get('created_at', '') or '')
                 }
             else:
                 # tuple/list
@@ -512,8 +519,10 @@ class RecipeCreatorWindow:
                     "code": str(color[0]) if len(color) > 0 else '',
                     "name": str(color[1]) if len(color) > 1 else '',
                     "dye_type": str(color[2]) if len(color) > 2 else '',
-                    "price_kg": float(color[3]) if len(color) > 3 else 0.0,
-                    "resa_percent": float(color[6]) if len(color) > 6 and color[6] not in (None, '') else 100.0
+                    "supplier": str(color[4]) if len(color) > 4 else '',
+                    "price_kg": float(color[5]) if len(color) > 5 else 0.0,
+                    "resa_percent": float(color[6]) if len(color) > 6 and color[6] not in (None, '') else 100.0,
+                    "created_at": str(color[7]) if len(color) > 7 else ''
                 }
         except:
             return None
@@ -541,17 +550,22 @@ class RecipeCreatorWindow:
             tree.delete(item)
 
         for color in colors:
+            created = str(color.get("created_at", "") or "")
+            created_date = created.split()[0] if created else ""
             tree.insert("", tk.END, values=(
                 color["code"],
                 color["name"],
                 color["dye_type"],
-                f"€{color['price_kg']:.2f}"
+                color.get("supplier", ""),
+                f"€{color['price_kg']:.2f}",
+                f"{float(color.get('resa_percent', 100) or 100):.2f}%",
+                created_date
             ))
 
     def perform_search_ind(self):
         """Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Indanthren"""
         if not self.indanthren_colors:
-            messagebox.showinfo("Info", "No Indanthren colors available", parent=self.window)
+            self.display_colors(self.indanthren_tree, [])
             return
 
         code_search = self.search_code_var_ind.get().strip().upper()
@@ -569,16 +583,12 @@ class RecipeCreatorWindow:
             if code_match and name_match:
                 filtered.append(color)
 
-        if filtered:
-            self.display_colors(self.indanthren_tree, filtered)
-        else:
-            messagebox.showinfo("Search Result", "No colors found matching your search criteria", parent=self.window)
-            self.display_colors(self.indanthren_tree, [])
+        self.display_colors(self.indanthren_tree, filtered)
 
     def perform_search_rea(self):
         """Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Reattivi"""
         if not self.reattivi_colors:
-            messagebox.showinfo("Info", "No Reattivi colors available", parent=self.window)
+            self.display_colors(self.reattivi_tree, [])
             return
 
         code_search = self.search_code_var_rea.get().strip().upper()
@@ -596,11 +606,7 @@ class RecipeCreatorWindow:
             if code_match and name_match:
                 filtered.append(color)
 
-        if filtered:
-            self.display_colors(self.reattivi_tree, filtered)
-        else:
-            messagebox.showinfo("Search Result", "No colors found matching your search criteria", parent=self.window)
-            self.display_colors(self.reattivi_tree, [])
+        self.display_colors(self.reattivi_tree, filtered)
 
     def reset_search_ind(self):
         """Ù…Ø³Ø­ Ø¨Ø­Ø« Indanthren"""
@@ -732,7 +738,7 @@ class RecipeCreatorWindow:
                 )
                 return
         
-        price_text = color_data[3].replace('€', '').strip()
+        price_text = color_data[4].replace('€', '').strip()
         try:
             price = float(price_text)
         except:
@@ -747,10 +753,7 @@ class RecipeCreatorWindow:
             "resa_percent": self._find_color_resa_percent(new_color_code)
         })
 
-        self.update_selected_tree()
-        # ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ø¹Ù„ÙˆÙ…Ø§Øª ÙˆØ§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
-        self.update_quick_info()
-        self.update_chemicals()  # âœ… Ù‡Ø°Ø§ Ù…Ù‡Ù… Ø¬Ø¯Ø§Ù‹
+        self._refresh_recipe_calculations()
 
     def update_selected_tree(self):
         """ØªØ­Ø¯ÙŠØ« Ø´Ø¬Ø±Ø© Ø§Ù„Ø£Ù„ÙˆØ§Ù† Ø§Ù„Ù…Ø¶Ø§ÙØ©"""
@@ -784,9 +787,7 @@ class RecipeCreatorWindow:
                 self.selected_colors.pop(i)
                 break
 
-        self.update_selected_tree()
-        self.update_quick_info()
-        self.update_chemicals()  # âœ… ØªØ­Ø¯ÙŠØ« Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ø¹Ø¯ Ø§Ù„Ø­Ø°Ù
+        self._refresh_recipe_calculations()
 
     def clear_all_colors(self):
         """Ù…Ø³Ø­ Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø£Ù„ÙˆØ§Ù†"""
@@ -796,9 +797,13 @@ class RecipeCreatorWindow:
         confirm = messagebox.askyesno("Confirm", "Are you sure you want to remove all colors from the recipe?", parent=self.window)
         if confirm:
             self.selected_colors.clear()
-            self.update_selected_tree()
-            self.update_quick_info()
-            self.update_chemicals()  # âœ… ØªØ­Ø¯ÙŠØ« Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ø¹Ø¯ Ø§Ù„Ù…Ø³Ø­
+            self._refresh_recipe_calculations()
+
+    def _refresh_recipe_calculations(self):
+        """Refresh selected tree and all dependent calculations instantly."""
+        self.update_selected_tree()
+        self.update_quick_info()
+        self.update_chemicals()
 
     def update_quick_info(self):
         """ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„Ø³Ø±ÙŠØ¹Ø©"""
@@ -809,8 +814,6 @@ class RecipeCreatorWindow:
         self.colors_count_label.config(text=str(colors_count))
         self.percentage_label.config(text=f"{total_percentage:.2f}%")
         self.cost_label.config(text=f"€{total_cost:.2f}")
-        self.update_chemicals()
-
         type_counts = {}
         for color in self.selected_colors:
             dye_type = color["dye_type"]

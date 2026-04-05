@@ -1,7 +1,7 @@
-ColorChemSystem/
+DyeMasterPro/
 ├── __init__.py
 ├── main.py              # Main entry point
-├── main.spec            # PyInstaller spec file
+├── DyeMasterPro.spec    # PyInstaller spec file
 ├── requirements.txt     # Dependencies (with PyInstaller)
 ├── icon.ico             # Application icon
 ├── version.txt          # Version info

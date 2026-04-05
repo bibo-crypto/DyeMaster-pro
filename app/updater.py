@@ -1,4 +1,4 @@
-"""
+﻿"""
 In-app updater for PyInstaller --onedir builds.
 
 GitHub Release format expected:
@@ -22,7 +22,6 @@ import os
 import shutil
 import subprocess
 import sys
-import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 import zipfile
@@ -30,7 +29,7 @@ import zipfile
 import requests
 
 
-# ─────────────────────────────────────────────────────────────────────────── #
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 
 def _get_install_dir() -> str:
     """Folder that contains the running executable (works for onedir & onefile)."""
@@ -53,7 +52,7 @@ def _is_dir_writable(path: str) -> bool:
 def _get_user_update_root() -> str:
     """Per-user writable folder used for updater staging and batch file."""
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    return os.path.join(base, "ColorChemSystem")
+    return os.path.join(base, "DyeMasterPro")
 
 
 def _get_pending_restore_marker() -> str:
@@ -97,7 +96,7 @@ def _read_pending_restore() -> str | None:
     return None
 
 
-# ─────────────────────────────────────────────────────────────────────────── #
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 
 class AppUpdater:
     def __init__(self, current_version: str = "1.0.0"):
@@ -109,7 +108,7 @@ class AppUpdater:
             f"{self.repo_owner}/{self.repo_name}/releases/latest"
         )
 
-    # ── Public API ────────────────────────────────────────────────────── #
+    # â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 
     def check_for_updates(self):
         ok, ver, notes, payload = self.get_latest_release()
@@ -167,7 +166,7 @@ class AppUpdater:
             exe_stem    = os.path.splitext(exe_name)[0]      # main
             current_exe = os.path.abspath(sys.executable)
 
-            # Staging paths – all inside install_dir (same NTFS volume)
+            # Staging paths â€“ all inside install_dir (same NTFS volume)
             install_writable = _is_dir_writable(install_dir)
             staging_root = install_dir if install_writable else _get_user_update_root()
             os.makedirs(staging_root, exist_ok=True)
@@ -188,7 +187,7 @@ class AppUpdater:
                 shutil.rmtree(staging_dir, ignore_errors=True)
             os.makedirs(staging_dir, exist_ok=True)
 
-            # ── Progress window ──────────────────────────────────────── #
+            # â”€â”€ Progress window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
             result_holder  = [None]
             progress_win   = None
             progress_var   = None
@@ -199,7 +198,7 @@ class AppUpdater:
             try:
                 progress_win = tk.Toplevel(parent_window)
                 progress_win.title("Downloading Update")
-                progress_win.geometry("460x185")
+                progress_win.geometry("520x220")
                 progress_win.resizable(False, False)
                 if parent_window:
                     progress_win.transient(parent_window)
@@ -208,28 +207,52 @@ class AppUpdater:
                 progress_win.grab_set()
                 progress_win.attributes("-topmost", True)
                 progress_win.after(250, lambda: progress_win.attributes("-topmost", False))
+                shell = tk.Frame(progress_win, bg="#f3f7ff", bd=1, relief="solid")
+                shell.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
                 tk.Label(
-                    progress_win,
-                    text="Downloading new version – please wait…",
-                    font=("Arial", 10, "bold"),
-                    pady=10,
+                    shell,
+                    text="Downloading the new version",
+                    font=("Segoe UI", 11, "bold"),
+                    fg="#0b1f44",
+                    bg="#f3f7ff",
+                    pady=8,
                 ).pack()
 
+                tk.Label(
+                    shell,
+                    text="Please wait until the download is completed.",
+                    font=("Segoe UI", 9),
+                    fg="#3f5178",
+                    bg="#f3f7ff",
+                ).pack(pady=(0, 8))
+
                 progress_var = tk.DoubleVar(value=0)
+                style = ttk.Style(progress_win)
+                style.configure(
+                    "UpdateBlue.Horizontal.TProgressbar",
+                    troughcolor="#d8e6ff",
+                    bordercolor="#c2d8ff",
+                    lightcolor="#2f8cff",
+                    darkcolor="#0a66d0",
+                    background="#0a66d0",
+                    thickness=18,
+                )
                 ttk.Progressbar(
-                    progress_win,
+                    shell,
                     variable=progress_var,
                     maximum=100,
-                    length=410,
+                    length=460,
                     mode="determinate",
+                    style="UpdateBlue.Horizontal.TProgressbar",
+                    orient="horizontal",
                 ).pack(pady=4, padx=20)
 
-                progress_label = tk.Label(progress_win, text="Connecting…", font=("Arial", 9))
+                progress_label = tk.Label(shell, text="Connecting...", font=("Segoe UI", 9, "bold"), fg="#193763", bg="#f3f7ff")
                 progress_label.pack()
-                speed_label = tk.Label(progress_win, text="", font=("Arial", 9), fg="#555")
+                speed_label = tk.Label(shell, text="", font=("Segoe UI", 9), fg="#274977", bg="#f3f7ff")
                 speed_label.pack()
-                eta_label = tk.Label(progress_win, text="", font=("Arial", 9), fg="#555")
+                eta_label = tk.Label(shell, text="", font=("Segoe UI", 9), fg="#274977", bg="#f3f7ff")
                 eta_label.pack()
                 progress_win.update()
             except Exception:
@@ -261,7 +284,7 @@ class AppUpdater:
                     rem     = (total - done) / avg if avg > 0 else 0
                     progress_var.set(pct)
                     progress_label.config(
-                        text=f"{pct:.1f}%   –   {done_mb:.1f} MB / {tot_mb:.1f} MB"
+                        text=f"{pct:.1f}%   -   {done_mb:.1f} MB / {tot_mb:.1f} MB"
                     )
                     if rem > 0:
                         eta_label.config(
@@ -273,24 +296,17 @@ class AppUpdater:
                     progress_var.set((progress_var.get() + 1) % 100)
                 progress_win.update()
 
-            def _do_download():
-                try:
-                    self._download_file(zip_url, zip_path, progress_callback=_on_progress)
-                    result_holder[0] = True
-                except Exception as exc:
-                    result_holder[0] = exc
-                finally:
-                    if progress_win:
-                        try:
-                            progress_win.after(0, progress_win.destroy)
-                        except Exception:
-                            pass
-
-            dl_thread = threading.Thread(target=_do_download, daemon=True)
-            dl_thread.start()
-            if progress_win:
-                progress_win.wait_window()
-            dl_thread.join(timeout=15)
+            try:
+                self._download_file(zip_url, zip_path, progress_callback=_on_progress)
+                result_holder[0] = True
+            except Exception as exc:
+                result_holder[0] = exc
+            finally:
+                if progress_win:
+                    try:
+                        progress_win.destroy()
+                    except Exception:
+                        pass
 
             if isinstance(result_holder[0], Exception):
                 messagebox.showerror("Update Error", f"Download failed:\n{result_holder[0]}")
@@ -301,7 +317,7 @@ class AppUpdater:
                 shutil.rmtree(staging_dir, ignore_errors=True)
                 return False
 
-            # ── Validate & extract zip ───────────────────────────────── #
+            # â”€â”€ Validate & extract zip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
             if not zipfile.is_zipfile(zip_path):
                 messagebox.showerror("Update Error", "Downloaded file is not a valid ZIP.")
                 shutil.rmtree(staging_dir, ignore_errors=True)
@@ -325,6 +341,15 @@ class AppUpdater:
                 shutil.rmtree(staging_dir, ignore_errors=True)
                 return False
 
+            # If release executable name differs, create a copy with current executable name.
+            try:
+                if os.path.basename(new_exe).lower() != exe_name.lower():
+                    normalized = os.path.join(os.path.dirname(new_exe), exe_name)
+                    shutil.copy2(new_exe, normalized)
+                    new_exe = normalized
+            except Exception:
+                pass
+
             new_exe_dir = os.path.dirname(new_exe)   # folder containing new exe
 
             # Write version.txt into staging so bat can deploy it
@@ -335,11 +360,11 @@ class AppUpdater:
             except Exception:
                 pass
 
-            # ── Build the batch updater ──────────────────────────────── #
+            # â”€â”€ Build the batch updater â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
             # Strategy:
             #   - cd into install_dir
-            #   - rename main.exe → main.exe.old
-            #   - copy all files from new_exe_dir → install_dir  (xcopy)
+            #   - rename main.exe â†’ main.exe.old
+            #   - copy all files from new_exe_dir â†’ install_dir  (xcopy)
             #   - launch new main.exe
             #   - cleanup
 
@@ -350,17 +375,17 @@ class AppUpdater:
                 "setlocal",
                 f'cd /D "{install_dir}"',
                 "",
-                ":: ── Wait for old process to exit ──────────────────────────",
+                ":: â”€â”€ Wait for old process to exit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€",
                 ":WAIT",
                 f'  tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul 2>&1',
                 "  if not errorlevel 1 (",
                 "    ping 127.0.0.1 -n 2 -w 1000 >nul",
                 "    goto WAIT",
                 "  )",
-                ":: Extra settle – wait for Windows to release file handles",
+                ":: Extra settle â€“ wait for Windows to release file handles",
                 "ping 127.0.0.1 -n 5 -w 1000 >nul",
                 "",
-                ":: ── Backup current exe ─────────────────────────────────────",
+                ":: â”€â”€ Backup current exe â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€",
                 f'if exist "{exe_name}.old" del /F /Q "{exe_name}.old"',
                 f'ren "{exe_name}" "{exe_name}.old"',
                 f'if not exist "{exe_name}.old" (',
@@ -368,7 +393,7 @@ class AppUpdater:
                 '  goto CLEANUP',
                 ')',
                 "",
-                ":: ── Copy new files into place (xcopy overwrites everything) ─",
+                ":: â”€â”€ Copy new files into place (xcopy overwrites everything) â”€",
                 f'xcopy /E /Y /I /Q "{new_exe_dir}\\*" "{install_dir}\\"',
                 f'if not exist "{exe_name}" (',
                 '  echo ERROR: New exe not found after copy - rolling back.',
@@ -376,7 +401,7 @@ class AppUpdater:
                 '  goto CLEANUP',
                 ')',
                 "",
-                ":: ── Launch new version ─────────────────────────────────────",
+                ":: â”€â”€ Launch new version â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€",
                 f'start "" /D "{install_dir}" "{current_exe}"',
                 "",
                 ":CLEANUP",
@@ -391,7 +416,7 @@ class AppUpdater:
             with open(bat_path, "w", encoding="ascii", errors="replace") as bf:
                 bf.write(bat_content)
 
-            # ── Launch batch ─────────────────────────────────────────── #
+            # â”€â”€ Launch batch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
             if install_writable:
                 subprocess.Popen(
                     ["cmd.exe", "/C", bat_path],
@@ -425,7 +450,7 @@ class AppUpdater:
             messagebox.showerror("Update Error", f"Failed to prepare update:\n{exc}")
             return False
 
-    # ── Internal helpers ──────────────────────────────────────────────── #
+    # â”€â”€ Internal helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 
     def _find_exe_in_dir(self, root: str, exe_name: str) -> str | None:
         """
@@ -445,13 +470,25 @@ class AppUpdater:
                         return candidate
         except Exception:
             pass
+
+        # Fallback: pick the first executable found (flat or one nested folder).
+        try:
+            for entry in os.scandir(root):
+                if entry.is_file() and entry.name.lower().endswith(".exe"):
+                    return entry.path
+                if entry.is_dir():
+                    for sub in os.scandir(entry.path):
+                        if sub.is_file() and sub.name.lower().endswith(".exe"):
+                            return sub.path
+        except Exception:
+            pass
         return None
 
     def _extract_asset_urls(self, release_data):
         """
         Look for a .zip asset (preferred) that contains the full app folder,
         and optionally a version.txt asset.
-        Falls back to .exe if no zip found (onefile compatibility).
+        ZIP is required for this updater flow.
         """
         zip_url = None
         ver_url = None
@@ -478,13 +515,13 @@ class AppUpdater:
             elif name.endswith(".zip"):
                 score = 0
                 if exe_stem and exe_stem in name: score += 50
-                if any(t in name for t in ("colorchem", "dyemaster", "main")): score += 20
+                if any(t in name for t in ("dyemaster", "main")): score += 20
                 zip_candidates.append((score, raw, url))
 
             elif name.endswith(".exe"):
                 score = 0
                 if exe_stem and exe_stem in name: score += 50
-                if any(t in name for t in ("colorchem", "dyemaster", "main")): score += 20
+                if any(t in name for t in ("dyemaster", "main")): score += 20
                 if any(b in name for b in ("setup", "installer")): score -= 20
                 exe_candidates.append((score, raw, url))
 
@@ -495,8 +532,8 @@ class AppUpdater:
             print(f"[Updater] selected ZIP: {best_name}")
         elif exe_candidates:
             exe_candidates.sort(key=lambda x: x[0], reverse=True)
-            _, best_name, zip_url = exe_candidates[0]   # reuse zip_url slot
-            print(f"[Updater] selected EXE (no zip found): {best_name}")
+            _, best_name, _ = exe_candidates[0]
+            print(f"[Updater] EXE asset found but ignored (ZIP required): {best_name}")
 
         return zip_url, ver_url
 
@@ -561,3 +598,4 @@ class AppUpdater:
             return h.hexdigest()
         except Exception:
             return None
+

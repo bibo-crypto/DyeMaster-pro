@@ -1,8 +1,9 @@
-#define MyAppName "ColorChemSystem"
+#define ProjectRoot AddBackslash(SourcePath)
+#define MyAppName "DyeMaster Pro"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "ColorChemSystem"
-#define MyAppExeName "ColorChemSystem.exe"
-#define MyDistDir "E:\PythonProject\ColorChemSystem\dist\ColorChemSystem"
+#define MyAppPublisher "DyeMaster Pro"
+#define MyAppExeName "DyeMasterPro.exe"
+#define MyDistDir ProjectRoot + "dist\\DyeMasterPro"
 
 [Setup]
 AppId={{E2A5D7B8-2F77-49D5-9B7D-5D7E706D4E91}
@@ -12,8 +13,8 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=E:\PythonProject\ColorChemSystem\installer_output
-OutputBaseFilename=ColorChemSystem_Setup
+OutputDir={#ProjectRoot}installer_output
+OutputBaseFilename=DyeMasterPro_Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -33,8 +34,8 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 Source: "{#MyDistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Optional: bundle VC++ redistributable next to this script and include it.
-; Download and place as: E:\PythonProject\ColorChemSystem\vc_redist.x64.exe
-Source: "E:\PythonProject\ColorChemSystem\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
+; Download and place next to installer.iss as: vc_redist.x64.exe
+Source: "{#ProjectRoot}vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -49,3 +50,52 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
 ; Note: The app has single-instance protection to prevent database conflicts.
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
+[Code]
+var
+  SerialPage: TInputQueryWizardPage;
+  CustomerSerial: String;
+
+procedure InitializeWizard;
+begin
+  CustomerSerial := Trim(ExpandConstant('{param:SERIAL|}'));
+  SerialPage :=
+    CreateInputQueryPage(
+      wpSelectTasks,
+      'Activation Serial',
+      'Enter your activation serial code',
+      'Paste the serial from customer_serials.txt exactly as received. Example format: xxxxx.yyyyy'
+    );
+  SerialPage.Add('Serial Code:', False);
+  if CustomerSerial <> '' then
+    SerialPage.Values[0] := CustomerSerial;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if CurPageID = SerialPage.ID then
+  begin
+    if Trim(CustomerSerial) = '' then
+      CustomerSerial := Trim(SerialPage.Values[0]);
+    if CustomerSerial = '' then
+    begin
+      MsgBox('Please paste your activation serial code to continue.', mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  LicenseDir: String;
+  SerialFile: String;
+begin
+  if CurStep = ssInstall then
+  begin
+    LicenseDir := ExpandConstant('{localappdata}\DyeMasterPro\license');
+    SerialFile := LicenseDir + '\serial.txt';
+    if not DirExists(LicenseDir) then
+      ForceDirectories(LicenseDir);
+    SaveStringToFile(SerialFile, CustomerSerial, False);
+  end;
+end;

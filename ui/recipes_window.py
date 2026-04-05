@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox
 # استيرادات محلية من app
 from app.models import Recipe
 from app.database import DatabaseManager
+from ui.theme_tokens import LIGHT_THEME, configure_sub_button_style
 
 
 def _show_on_top(window, parent):
@@ -28,6 +29,7 @@ class RecipesWindow:
         self.parent = parent
         self.db = db
         self.recipe_id = recipe_id
+        self._tree_item_recipe_ids: dict[str, int] = {}
 
         # إنشاء النافذة
         self.window = tk.Toplevel(parent)
@@ -54,6 +56,7 @@ class RecipesWindow:
         self.load_recipes_data()
 
         # إنشاء الواجهة
+        self.configure_styles()
         self.setup_ui()
 
         # إذا تم تحديد recipe_id، عرض تفاصيله
@@ -69,6 +72,10 @@ class RecipesWindow:
             print(f"Error loading recipes: {e}")
             self.recipes_data = []
 
+    def configure_styles(self):
+        style = ttk.Style(self.window)
+        configure_sub_button_style(style, 'Sub.TButton', LIGHT_THEME)
+
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
         # الإطار الرئيسي
@@ -76,7 +83,7 @@ class RecipesWindow:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         # إطار البحث
-        search_frame = ttk.LabelFrame(main_frame, text="Search Recipes", padding=10)
+        search_frame = ttk.LabelFrame(main_frame, text="Recipe Filters", padding=10)
         search_frame.pack(fill=tk.X, pady=(0, 10))
 
         # البحث بالكود
@@ -91,11 +98,10 @@ class RecipesWindow:
         search_name_entry = ttk.Entry(search_frame, textvariable=self.search_name_var, width=20)
         search_name_entry.grid(row=0, column=3, padx=5, pady=5)
 
-        # أزرار البحث
-        ttk.Button(search_frame, text="Search",
-                   command=self.perform_search, width=10).grid(row=0, column=4, padx=5, pady=5)
-        ttk.Button(search_frame, text="Reset",
-                   command=self.reset_search, width=10).grid(row=0, column=5, padx=5, pady=5)
+        search_code_entry.bind("<KeyRelease>", lambda _e: self.perform_search())
+        search_name_entry.bind("<KeyRelease>", lambda _e: self.perform_search())
+        ttk.Button(search_frame, text="Clear",
+                   command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=5)
 
         # إطار قائمة الريتشتات
         list_frame = ttk.LabelFrame(main_frame, text="Recipes List", padding=10)
@@ -103,11 +109,10 @@ class RecipesWindow:
 
         # شجرة الريتشتات
         # Updated columns: removed 'customer' and 'fabric'
-        columns = ("id", "code", "name", "colors", "total%", "created")
+        columns = ("code", "name", "colors", "total%", "created")
         self.recipes_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
 
         # تعريف العناوين
-        self.recipes_tree.heading("id", text="ID")
         self.recipes_tree.heading("code", text="Recipe Code")
         self.recipes_tree.heading("name", text="Recipe Name")
         # Removed customer and fabric headings
@@ -116,7 +121,6 @@ class RecipesWindow:
         self.recipes_tree.heading("created", text="Created Date")
 
         # تعريف الأعمدة
-        self.recipes_tree.column("id", width=50, anchor="center")
         self.recipes_tree.column("code", width=100, anchor="center")
         self.recipes_tree.column("name", width=150, anchor="center")
         # Removed customer and fabric columns
@@ -209,21 +213,22 @@ class RecipesWindow:
         """ملء شجرة الريتشتات"""
         for item in self.recipes_tree.get_children():
             self.recipes_tree.delete(item)
+        self._tree_item_recipe_ids.clear()
 
         if not self.recipes_data:
-            self.recipes_tree.insert("", tk.END, values=("No recipes found", "", "", "", "", ""))
+            self.recipes_tree.insert("", tk.END, values=("No recipes found", "", "", "", ""))
             return
 
         for recipe in self.recipes_data:
             # Assuming recipe is a Recipe object now
-            self.recipes_tree.insert("", tk.END, values=(
-                recipe.id,
+            item_id = self.recipes_tree.insert("", tk.END, values=(
                 recipe.recipe_code,
                 recipe.name,
                 self.db.get_recipe_colors_count(recipe.id), # Get colors count from DB
                 f"{self.db.get_recipe_total_percentage(recipe.id):.2f}%", # Get total percentage from DB
                 recipe.created_at[:10] if recipe.created_at else ''
             ))
+            self._tree_item_recipe_ids[item_id] = recipe.id
 
 
     def on_recipe_select(self, event):
@@ -232,7 +237,9 @@ class RecipesWindow:
         if not selected:
             return
 
-        recipe_id = self.recipes_tree.item(selected[0])["values"][0]
+        recipe_id = self._get_selected_recipe_id(selected[0])
+        if recipe_id is None:
+            return
         self.show_recipe_details_by_id(recipe_id)
 
     def show_recipe_details_by_id(self, recipe_id):
@@ -296,7 +303,10 @@ class RecipesWindow:
             messagebox.showwarning("Warning", "Please select a recipe to view", parent=self.window)
             return
 
-        recipe_id = self.recipes_tree.item(selected[0])["values"][0]
+        recipe_id = self._get_selected_recipe_id(selected[0])
+        if recipe_id is None:
+            messagebox.showwarning("Warning", "Please select a valid recipe", parent=self.window)
+            return
         self.show_recipe_details_by_id(recipe_id)
 
     def edit_recipe(self):
@@ -306,11 +316,20 @@ class RecipesWindow:
             messagebox.showwarning("Warning", "Please select a recipe to edit", parent=self.window)
             return
 
-        recipe_id = self.recipes_tree.item(selected[0])["values"][0]
+        recipe_id = self._get_selected_recipe_id(selected[0])
+        if recipe_id is None:
+            messagebox.showwarning("Warning", "Please select a valid recipe", parent=self.window)
+            return
 
         try:
-            from .recipe_creator_window import RecipeCreatorWindow # Assuming this is the edit window
-            RecipeCreatorWindow(self.window, self.db, recipe_id_to_edit=recipe_id, refresh_callback=self.refresh_data)
+            from .recipe_creator_window import RecipeCreatorWindow
+            messagebox.showinfo(
+                "Edit Recipe",
+                "Direct edit mode is not available in this window.\n"
+                "A Recipe Creator window will open for creating/re-saving the recipe.",
+                parent=self.window
+            )
+            RecipeCreatorWindow(self.window, self.db)
         except ImportError as e:
             messagebox.showerror("Error", f"Cannot open edit window. Make sure 'recipe_creator_window.py' exists and is correctly imported: {e}")
         except Exception as e:
@@ -324,8 +343,11 @@ class RecipesWindow:
             messagebox.showwarning("Warning", "Please select a recipe to delete", parent=self.window)
             return
 
-        recipe_id = self.recipes_tree.item(selected[0])["values"][0]
-        recipe_code = self.recipes_tree.item(selected[0])["values"][1]
+        recipe_id = self._get_selected_recipe_id(selected[0])
+        if recipe_id is None:
+            messagebox.showwarning("Warning", "Please select a valid recipe", parent=self.window)
+            return
+        recipe_code = self.recipes_tree.item(selected[0])["values"][0]
 
         confirm = messagebox.askyesno(
             "Confirm Delete",
@@ -375,6 +397,9 @@ class RecipesWindow:
         self.populate_recipes_tree()
         self.clear_recipe_details()
         self.status_label.config(text="Data refreshed")
+
+    def _get_selected_recipe_id(self, tree_item_id):
+        return self._tree_item_recipe_ids.get(tree_item_id)
 
 
 # للإبقاء على التوافق مع الكود القديم

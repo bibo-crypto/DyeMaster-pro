@@ -10,11 +10,16 @@ def _base_dir() -> str:
 
 
 base = _base_dir()
-tcl_dir = os.path.join(base, "tcl8.6")
-tk_dir = os.path.join(base, "tk8.6")
 
-if os.path.isdir(tcl_dir):
-    os.environ["TCL_LIBRARY"] = tcl_dir
-if os.path.isdir(tk_dir):
-    os.environ["TK_LIBRARY"] = tk_dir
+# In onedir builds, Tcl/Tk usually lives under "<app>/_internal/".
+candidate_roots = [base, os.path.join(base, "_internal")]
 
+for root in candidate_roots:
+    tcl_dir = os.path.join(root, "tcl8.6")
+    tk_dir = os.path.join(root, "tk8.6")
+    if os.path.isdir(tcl_dir):
+        os.environ["TCL_LIBRARY"] = tcl_dir
+    if os.path.isdir(tk_dir):
+        os.environ["TK_LIBRARY"] = tk_dir
+    if "TCL_LIBRARY" in os.environ and "TK_LIBRARY" in os.environ:
+        break

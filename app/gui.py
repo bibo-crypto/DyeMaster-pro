@@ -15,9 +15,10 @@ from app.models import Color
 from app.updater import AppUpdater
 from app.tester import run_tests_from_gui
 import logging
+from ui.theme_tokens import BASE_FONT, BOLD_FONT, get_theme_tokens
 
 
-class ColorChemSystemGUI:
+class DyeMasterProGUI:
     """الواجهة الرئيسية للتطبيق"""
     
     def __init__(self, root):
@@ -27,7 +28,7 @@ class ColorChemSystemGUI:
         
         # إضافة رقم الإصدار لعنوان النافذة
         from app.config import APP_VERSION
-        self.root.title(f"Color and Chemicals Management System - v{APP_VERSION}")
+        self.root.title(f"DyeMaster Pro - v{APP_VERSION}")
         
         # تعيين أيقونة البرنامج
         try:
@@ -65,6 +66,9 @@ class ColorChemSystemGUI:
         self.sort_column = "code"
         self.sort_ascending = True
         self._child_windows = {}
+        self._default_resa_value = "100"
+        self._auto_resa_enabled = True
+        self._refresh_after_child_job = None
 
         # تحسين المظهر العام
         self.style = ttk.Style()
@@ -178,11 +182,14 @@ class ColorChemSystemGUI:
         # قائمة Help
         help_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Show Device ID", command=self.show_device_id_dialog)
+        help_menu.add_separator()
         help_menu.add_command(label="About", command=self.show_about_dialog)
 
     def show_add_color_form(self):
         """عرض نموذج إضافة لون"""
         self.clear_fields()
+        self._set_default_resa()
         messagebox.showinfo("Add Color", "Use the form below to add a new color")
 
     def show_add_recipe_form(self):
@@ -280,7 +287,7 @@ class ColorChemSystemGUI:
     def show_about_dialog(self):
         """عرض نافذة حول"""
         from app.config import APP_VERSION
-        about_text = f"""Color and Chemicals Management System
+        about_text = f"""DyeMaster Pro
 
 Version: {APP_VERSION}
 Developer: Bibo Marcos
@@ -291,6 +298,50 @@ Developer: Bibo Marcos
 © 2024 شركة الحقائق محفوظة
 """
         messagebox.showinfo("About", about_text)
+
+    def show_device_id_dialog(self):
+        """Show and copy current device ID used for activation."""
+        try:
+            from app.licensing import get_device_id
+            device_id = get_device_id()
+
+            dlg = tk.Toplevel(self.root)
+            dlg.title("Device ID")
+            dlg.geometry("520x170")
+            dlg.resizable(False, False)
+            dlg.transient(self.root)
+            dlg.grab_set()
+            dlg.lift()
+            dlg.focus_force()
+            dlg.attributes("-topmost", True)
+            dlg.after(250, lambda: dlg.attributes("-topmost", False))
+
+            frame = ttk.Frame(dlg, padding=12)
+            frame.pack(fill=tk.BOTH, expand=True)
+
+            ttk.Label(
+                frame,
+                text="Send this Device ID to support to receive your activation serial:",
+                wraplength=480
+            ).pack(anchor="w", pady=(0, 8))
+
+            id_var = tk.StringVar(value=device_id)
+            entry = ttk.Entry(frame, textvariable=id_var, state="readonly", width=62)
+            entry.pack(fill=tk.X, pady=(0, 10))
+            entry.selection_range(0, tk.END)
+
+            btn_row = ttk.Frame(frame)
+            btn_row.pack(fill=tk.X)
+
+            def _copy():
+                self.root.clipboard_clear()
+                self.root.clipboard_append(device_id)
+                messagebox.showinfo("Device ID", "Device ID copied.", parent=dlg)
+
+            ttk.Button(btn_row, text="Copy Device ID", command=_copy).pack(side=tk.LEFT)
+            ttk.Button(btn_row, text="Close", command=dlg.destroy).pack(side=tk.RIGHT)
+        except Exception as e:
+            messagebox.showerror("Device ID", f"Could not get Device ID: {e}")
 
     def toggle_dark_mode(self):
         """Toggle between dark and light mode."""
@@ -304,47 +355,29 @@ Developer: Bibo Marcos
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
-
-        # --- Color Palette ---
-        if self.dark_mode:
-            # Dark Mode Colors
-            self.bg_color = "#333333"
-            self.fg_color = "#FFFFFF"
-            self.frame_bg = "#444444"
-            self.entry_bg = "#555555"
-            self.button_bg = "#00529B"
-            self.button_fg = "#FFFFFF"
-            self.button_active_bg = "#0077CC"
-            self.accent_button_bg = "#0077CC"
-            self.accent_button_active_bg = "#00529B"
-            self.header_bg = "#555555"
-            self.tree_bg = "#3A3A3A"
-            self.tree_fg = "#FFFFFF"
-            self.tree_selected_bg = "#00529B"
-        else:
-            # Light Mode Colors
-            self.bg_color = "#e8e8e8"
-            self.fg_color = "#000000"
-            self.frame_bg = "#e8e8e8"
-            self.entry_bg = "#FFFFFF"
-            self.button_bg = "#0078D7"
-            self.button_fg = "#FFFFFF"
-            self.button_active_bg = "#005A9E"
-            self.accent_button_bg = "#2E86C1"
-            self.accent_button_active_bg = "#1B4F72"
-            self.header_bg = "#F0F0F0"
-            self.tree_bg = "#FFFFFF"
-            self.tree_fg = "#000000"
-            self.tree_selected_bg = "#0078D7"
+        palette = get_theme_tokens(self.dark_mode)
+        self.bg_color = palette["bg"]
+        self.fg_color = palette["fg"]
+        self.frame_bg = palette["frame_bg"]
+        self.entry_bg = palette["entry_bg"]
+        self.button_bg = palette["button_bg"]
+        self.button_fg = palette["button_fg"]
+        self.button_active_bg = palette["button_active_bg"]
+        self.accent_button_bg = palette["accent_bg"]
+        self.accent_button_active_bg = palette["accent_active_bg"]
+        self.header_bg = palette["header_bg"]
+        self.tree_bg = palette["tree_bg"]
+        self.tree_fg = palette["tree_fg"]
+        self.tree_selected_bg = palette["tree_selected_bg"]
 
         # Update root background
         self.root.configure(bg=self.bg_color)
         
         # --- Base Styles ---
         self.style.configure('TFrame', background=self.frame_bg)
-        self.style.configure('TLabel', background=self.frame_bg, foreground=self.fg_color, font=('Arial', 10))
+        self.style.configure('TLabel', background=self.frame_bg, foreground=self.fg_color, font=BASE_FONT)
         self.style.configure('TLabelframe', background=self.frame_bg)
-        self.style.configure('TLabelframe.Label', background=self.frame_bg, foreground=self.fg_color, font=('Arial', 10, 'bold'))
+        self.style.configure('TLabelframe.Label', background=self.frame_bg, foreground=self.fg_color, font=BOLD_FONT)
 
         # --- Entry and Combobox ---
         self.style.configure('TEntry', fieldbackground=self.entry_bg, foreground=self.fg_color, insertcolor=self.fg_color)
@@ -358,7 +391,7 @@ Developer: Bibo Marcos
 
         # --- General App Button Style ---
         self.style.configure('App.TButton',
-                             font=('Arial', 10),
+                             font=BASE_FONT,
                              padding=5,
                              background=self.button_bg,
                              foreground=self.button_fg)
@@ -370,12 +403,12 @@ Developer: Bibo Marcos
                              background=self.tree_bg,
                              foreground=self.tree_fg,
                              fieldbackground=self.tree_bg,
-                             font=('Arial', 10),
+                             font=BASE_FONT,
                              rowheight=25)
         self.style.map('Treeview',
                        background=[('selected', self.tree_selected_bg)],
                        foreground=[('selected', self.button_fg)])
-        self.style.configure('Treeview.Heading', font=('Arial', 10, 'bold'), background=self.header_bg, foreground=self.fg_color)
+        self.style.configure('Treeview.Heading', font=BOLD_FONT, background=self.header_bg, foreground=self.fg_color)
         self.style.map('Treeview.Heading',
                        background=[('active', self.button_active_bg)])
 
@@ -384,7 +417,7 @@ Developer: Bibo Marcos
 
         # نمط زر Import مميز (أخضر) - Unchanged
         self.style.configure('Import.TButton',
-                             font=('Arial', 10, 'bold'),
+                             font=BOLD_FONT,
                              foreground='white',
                              background='#27AE60',
                              padding=6)
@@ -393,7 +426,7 @@ Developer: Bibo Marcos
         
         # نمط زر Test
         self.style.configure('Test.TButton',
-                             font=('Arial', 10, 'bold'),
+                             font=BOLD_FONT,
                              foreground='white',
                              background='#FF5722',
                              padding=6)
@@ -402,7 +435,7 @@ Developer: Bibo Marcos
 
         # Data buttons (Backup/Import)
         self.style.configure('Data.TButton',
-                             font=('Arial', 10, 'bold'),
+                             font=BOLD_FONT,
                              foreground='white',
                              background='#2F7D8C',
                              padding=6)
@@ -411,12 +444,18 @@ Developer: Bibo Marcos
 
         # نمط زر Accent - I'll keep it but it's not used
         self.style.configure('Accent.TButton',
-                             font=('Arial', 10, 'bold'),
+                             font=BOLD_FONT,
                              foreground='white',
                              background=self.accent_button_bg,
                              padding=6)
         self.style.map('Accent.TButton',
                        background=[('active', self.accent_button_active_bg)])
+
+        if hasattr(self, "status_bar"):
+            try:
+                self.status_bar.configure(bg=self.header_bg, fg=self.fg_color)
+            except Exception:
+                pass
 
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
@@ -449,21 +488,21 @@ Developer: Bibo Marcos
         toolbar_frame.pack(fill=tk.X, pady=5)
 
         # الإطار الأول: أزرار التطبيق الرئيسية
-        frame1 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1)
-        frame1.pack(side=tk.LEFT, padx=5, pady=2)
+        frame1 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1, padding=(8, 6))
+        frame1.pack(side=tk.LEFT, padx=5, pady=4)
 
-        ttk.Button(frame1, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(frame1, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(frame1, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(frame1, text="📄 Import PDF", command=self.open_pdf_import, style='Import.TButton').pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame1, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        ttk.Button(frame1, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        ttk.Button(frame1, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        ttk.Button(frame1, text="📄 Import PDF", command=self.open_pdf_import, style='Import.TButton').pack(side=tk.LEFT, padx=6, pady=2)
 
         # الإطار الثاني: أزرار البيانات والتحديث (على اليسار مع مسافة)
-        frame2 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1)
-        frame2.pack(side=tk.LEFT, padx=(20, 5), pady=2)
+        frame2 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1, padding=(8, 6))
+        frame2.pack(side=tk.LEFT, padx=(20, 5), pady=4)
 
-        ttk.Button(frame2, text="⬇ Import Data", command=self.import_data, style="Data.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(frame2, text="🗄 Backup DB", command=self.backup_database, style="Data.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(frame2, text="⬆ CHECK UPDATE", command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame2, text="⬇ Import Data", command=self.import_data, style="Data.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        ttk.Button(frame2, text="🗄 Backup DB", command=self.backup_database, style="Data.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        ttk.Button(frame2, text="⬆ CHECK UPDATE", command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=6, pady=2)
 
         self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙 Dark", command=self.toggle_dark_mode, width=10)
         self.dark_mode_button.pack(side=tk.RIGHT, padx=(0, 5))
@@ -573,6 +612,25 @@ Developer: Bibo Marcos
 
         self._child_windows[key] = instance
 
+        def _trigger_main_refresh():
+            """Auto-refresh main table/status after any child window closes."""
+            try:
+                self.load_data()
+            except Exception:
+                pass
+            finally:
+                self._refresh_after_child_job = None
+
+        def _schedule_refresh_after_child_close():
+            """Schedule a fast refresh and a short follow-up refresh."""
+            try:
+                if self._refresh_after_child_job is not None:
+                    self.root.after_cancel(self._refresh_after_child_job)
+            except Exception:
+                pass
+            self._refresh_after_child_job = self.root.after(90, _trigger_main_refresh)
+            self.root.after(260, _trigger_main_refresh)
+
         def _cleanup_child(_event=None):
             # Ignore destroy events coming from child widgets; we only care
             # when the toplevel window itself is being destroyed.
@@ -585,6 +643,7 @@ Developer: Bibo Marcos
                 pass
             if self._child_windows.get(key) is instance:
                 self._child_windows.pop(key, None)
+            _schedule_refresh_after_child_close()
 
         def _on_child_close():
             try:
@@ -615,25 +674,25 @@ Developer: Bibo Marcos
     
     def setup_search_frame(self):
         """إعداد إطار البحث"""
-        search_frame = ttk.LabelFrame(self.main_frame, text="Search", padding="5")
+        search_frame = ttk.LabelFrame(self.main_frame, text="Filters", padding="5")
         search_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Label(search_frame, text="Search:").grid(row=0, column=0, padx=5)
+        ttk.Label(search_frame, text="Filter:").grid(row=0, column=0, padx=5)
         self.search_entry = ttk.Entry(search_frame, width=30)
         self.search_entry.grid(row=0, column=1, padx=5)
-        self.search_entry.bind('<Return>', lambda e: self.search_colors())
+        self.search_entry.bind('<KeyRelease>', lambda e: self.search_colors())
 
         ttk.Label(search_frame, text="Dye Type:").grid(row=0, column=2, padx=5)
         self.search_type_combo = ttk.Combobox(search_frame, values=DYE_TYPES, state="readonly", width=20)
         self.search_type_combo.grid(row=0, column=3, padx=5)
+        self.search_type_combo.bind('<<ComboboxSelected>>', lambda e: self.search_colors())
 
         ttk.Label(search_frame, text="Supplier:").grid(row=0, column=4, padx=5)
         self.search_supplier_entry = ttk.Entry(search_frame, width=20)
         self.search_supplier_entry.grid(row=0, column=5, padx=5)
-        self.search_supplier_entry.bind('<Return>', lambda e: self.search_colors())
+        self.search_supplier_entry.bind('<KeyRelease>', lambda e: self.search_colors())
 
-        ttk.Button(search_frame, text="🔍 Search", command=self.search_colors, style="App.TButton").grid(row=0, column=6, padx=5)
-        ttk.Button(search_frame, text="🧽 Clear", command=self.clear_search, style="App.TButton").grid(row=0, column=7, padx=5)
+        ttk.Button(search_frame, text="🧽 Clear", command=self.clear_search, style="App.TButton").grid(row=0, column=6, padx=5)
 
     def setup_input_frame(self):
         """إعداد إطار إدخال البيانات"""
@@ -675,6 +734,8 @@ Developer: Bibo Marcos
         ttk.Label(row2, text="RESA %:").grid(row=0, column=4, padx=5, sticky="e")
         self.resa_entry = ttk.Entry(row2, width=10)
         self.resa_entry.grid(row=0, column=5, padx=5, sticky="w")
+        self._bind_auto_resa_events()
+        self._set_default_resa()
 
         # أزرار التحكم
         control_frame = ttk.Frame(input_frame)
@@ -684,6 +745,36 @@ Developer: Bibo Marcos
         ttk.Button(control_frame, text="✏ Modify Color", command=self.modify_color, style="App.TButton").grid(row=0, column=1, padx=5)
         ttk.Button(control_frame, text="🗑 Delete Color", command=self.delete_color, style="App.TButton").grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="🧹 Clear Fields", command=self.clear_fields, style="App.TButton").grid(row=0, column=3, padx=5)
+
+    def _bind_auto_resa_events(self):
+        """إضافة القيمة الافتراضية RESA عند بدء إدخال بيانات لون جديد."""
+        for entry in (self.code_entry, self.name_entry, self.supplier_entry, self.price_entry):
+            entry.bind("<KeyRelease>", self._on_add_form_changed, add="+")
+        self.type_combo.bind("<<ComboboxSelected>>", self._on_add_form_changed, add="+")
+
+    def _has_add_form_data(self):
+        """التحقق من وجود أي بيانات في نموذج إضافة اللون (عدا RESA)."""
+        return any((
+            self.code_entry.get().strip(),
+            self.name_entry.get().strip(),
+            self.type_combo.get().strip(),
+            self.supplier_entry.get().strip(),
+            self.price_entry.get().strip()
+        ))
+
+    def _set_default_resa(self):
+        """تعبئة RESA بالقيمة الافتراضية."""
+        self.resa_entry.delete(0, tk.END)
+        self.resa_entry.insert(0, self._default_resa_value)
+
+    def _on_add_form_changed(self, _event=None):
+        """ملء RESA تلقائياً عند أول إدخال بعد مسح الحقول."""
+        if not self._auto_resa_enabled:
+            return
+        if self.resa_entry.get().strip():
+            return
+        if self._has_add_form_data():
+            self._set_default_resa()
 
     def setup_table(self):
         """إعداد الجدول"""
@@ -1120,6 +1211,7 @@ Developer: Bibo Marcos
         self.supplier_entry.delete(0, tk.END)
         self.price_entry.delete(0, tk.END)
         self.resa_entry.delete(0, tk.END)
+        self._auto_resa_enabled = True
 
         for item in self.colors_table.selection():
             self.colors_table.selection_remove(item)
@@ -1220,7 +1312,7 @@ Developer: Bibo Marcos
             db_file = self.db.db_file
 
             if os.path.exists(db_file):
-                backup_file = os.path.join(folder, f"ColorChem_Backup_{timestamp}.db")
+                backup_file = os.path.join(folder, f"DyeMasterPro_Backup_{timestamp}.db")
 
                 # نسخ ملف قاعدة البيانات
                 shutil.copy2(db_file, backup_file)
@@ -1228,7 +1320,7 @@ Developer: Bibo Marcos
                 # إنشاء ملف معلومات
                 info_file = os.path.join(folder, f"Backup_Info_{timestamp}.txt")
                 with open(info_file, 'w', encoding='utf-8') as f:
-                    f.write(f"ColorChem System Backup\n")
+                    f.write(f"DyeMaster Pro Backup\n")
                     f.write(f"=" * 40 + "\n")
                     f.write(f"Backup Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                     f.write(f"Original: {db_file}\n")

@@ -139,9 +139,9 @@ def _format_number_no_trailing_zeros(value: float, decimals: int = 2) -> str:
 def format_currency(amount: float) -> str:
     """ØªÙ†Ø³ÙŠÙ‚ Ø§Ù„Ø¹Ù…Ù„Ø©"""
     try:
-        return f"EUR {float(amount):.2f}"
+        return f"€{float(amount):.2f}"
     except (TypeError, ValueError):
-        return "EUR 0.00"
+        return "€0.00"
 
 
 def format_percentage(value: float) -> str:

@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 #
-# Build with:   pyinstaller ColorChemSystem.spec --clean
+# Build with:   pyinstaller DyeMasterPro.spec --clean
 #
 # Uses --onedir (NOT --onefile) so PyInstaller never extracts files into
 # a temporary _MEIxxxxxx folder.  This eliminates the
@@ -51,7 +51,7 @@ exe = EXE(
     a.scripts,
     [],                     # <-- empty: binaries go into COLLECT (onedir)
     exclude_binaries=True,  # <-- key: keeps DLLs beside the exe
-    name='ColorChemSystem',
+    name='DyeMasterPro',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -65,7 +65,7 @@ exe = EXE(
     icon=['icon.ico'],
 )
 
-# COLLECT puts everything (exe + DLLs + data) into dist/ColorChemSystem/
+# COLLECT puts everything (exe + DLLs + data) into dist/DyeMasterPro/
 coll = COLLECT(
     exe,
     a.binaries,
@@ -73,5 +73,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='ColorChemSystem',
+    name='DyeMasterPro',
 )

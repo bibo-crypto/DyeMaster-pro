@@ -194,7 +194,7 @@ class SimpleColorsWindow:
         row += 1
 
         # السعر
-        ttk.Label(fields_frame, text="Price (EUR/kg):",
+        ttk.Label(fields_frame, text="Price (€/kg):",
                   font=('Arial', 9)).grid(
             row=row, column=0, sticky="e", padx=5, pady=3)
         self.price_var = tk.StringVar(value=str(self.color_data.get('price_kg', 0)))
@@ -364,7 +364,7 @@ class SimpleColorsWindow:
                                     f"Color '{new_code}' saved successfully!\n\n"
                                     f"- Name: {color_data['name']}\n"
                                     f"- Type: {color_data['dye_type']}\n"
-                                    f"- Price: EUR {price_val:.2f}/kg\n"
+                                    f"- Price: €{price_val:.2f}/kg\n"
                                     f"- Resa: {resa_display}%", parent=self.window)
 
                 # ✅ استدعاء دالة الرد للتحديث
@@ -703,7 +703,7 @@ class ColorsInUseWindow:
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         # إطار البحث والتصفية
-        search_frame = ttk.LabelFrame(self.main_frame, text="Search Colors", padding=10)
+        search_frame = ttk.LabelFrame(self.main_frame, text="Color Filters", padding=10)
         search_frame.pack(fill=tk.X, pady=(0, 10))
 
         # البحث بالكود
@@ -711,21 +711,16 @@ class ColorsInUseWindow:
         self.search_code_var = tk.StringVar()
         self.search_code_entry = ttk.Entry(search_frame, textvariable=self.search_code_var, width=15)
         self.search_code_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        self.search_code_entry.bind('<Return>', lambda e: self.perform_search())
+        self.search_code_entry.bind('<KeyRelease>', lambda e: self.perform_search())
 
         # البحث بالاسم
         ttk.Label(search_frame, text="Color Name:").grid(row=0, column=2, padx=5, pady=5, sticky="e")
         self.search_name_var = tk.StringVar()
         self.search_name_entry = ttk.Entry(search_frame, textvariable=self.search_name_var, width=20)
         self.search_name_entry.grid(row=0, column=3, padx=5, pady=5, sticky="w")
-        self.search_name_entry.bind('<Return>', lambda e: self.perform_search())
+        self.search_name_entry.bind('<KeyRelease>', lambda e: self.perform_search())
 
-        # زر البحث
-        ttk.Button(search_frame, text="Search",
-                   command=self.perform_search, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=5)
-
-        # زر إعادة الضبط
-        ttk.Button(search_frame, text="Reset",
+        ttk.Button(search_frame, text="Clear",
                    command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=5)
 
         # إطار قائمة الألوان المستخدمة

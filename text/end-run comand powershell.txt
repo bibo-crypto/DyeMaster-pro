@@ -1,1 +1,1 @@
-python -m PyInstaller --onefile --windowed --paths=ColorChemSystem main.py
+python -m PyInstaller --onefile --windowed --paths=DyeMasterPro main.py

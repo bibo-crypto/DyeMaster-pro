@@ -105,27 +105,24 @@ class SavedRecipesWindow:
     def setup_ui(self):
         """Ø¥Ø¹Ø¯Ø§Ø¯ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…"""
         # Ø¥Ø·Ø§Ø± Ø§Ù„Ø¨Ø­Ø«
-        search_frame = ttk.LabelFrame(self.window, text="Search Recipes", padding=8)
+        search_frame = ttk.LabelFrame(self.window, text="Recipe Filters", padding=8)
         search_frame.pack(fill=tk.X, padx=10, pady=5)
 
         # Ø¨Ø­Ø« Ø¨Ø§Ù„ÙƒÙˆØ¯
-        ttk.Label(search_frame, text="Search by Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
+        ttk.Label(search_frame, text="Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
         self.search_code_entry = ttk.Entry(search_frame, textvariable=self.search_code_var, width=15)
         self.search_code_entry.grid(row=0, column=1, padx=5, pady=3, sticky="w")
-        self.search_code_entry.bind('<Return>', lambda e: self.perform_search())
+        self.search_code_entry.bind('<KeyRelease>', lambda e: self.perform_search())
 
         # Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù…
-        ttk.Label(search_frame, text="Search by Name:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
+        ttk.Label(search_frame, text="Name:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
         self.search_name_entry = ttk.Entry(search_frame, textvariable=self.search_name_var, width=25)
         self.search_name_entry.grid(row=0, column=3, padx=5, pady=3, sticky="w")
-        self.search_name_entry.bind('<Return>', lambda e: self.perform_search())
+        self.search_name_entry.bind('<KeyRelease>', lambda e: self.perform_search())
 
         # Ø£Ø²Ø±Ø§Ø± Ø§Ù„Ø¨Ø­Ø«
-        ttk.Button(search_frame, text="Search",
-                   command=self.perform_search, width=12, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
-
-        ttk.Button(search_frame, text="Reset",
-                   command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=3)
+        ttk.Button(search_frame, text="Clear",
+                   command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
 
         # Ø§Ù„Ø¥Ø·Ø§Ø± Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ
         self.main_frame = ttk.Frame(self.window)
@@ -258,7 +255,7 @@ class SavedRecipesWindow:
         self.colors_tree.heading("name", text="Color Name")
         self.colors_tree.heading("dye_type", text="Dye Type")
         self.colors_tree.heading("percentage", text="%")
-        self.colors_tree.heading("price_kg", text="Price EUR/kg")
+        self.colors_tree.heading("price_kg", text="Price €/kg")
 
         # Ø£Ø¨Ø¹Ø§Ø¯ Ø§Ù„Ø£Ø¹Ù…Ø¯Ø© - Ø£ØµØºØ± Ø¨ÙƒØ«ÙŠØ±
         self.colors_tree.column("code", width=80, anchor="center", minwidth=70)
@@ -394,11 +391,7 @@ class SavedRecipesWindow:
             if code_match and name_match:
                 filtered_recipes.append(recipe_data)
 
-        if filtered_recipes:
-            self.display_recipes(filtered_recipes)
-        else:
-            messagebox.showinfo("Search Result", "No recipes found matching your search criteria", parent=self.window)
-            self.display_recipes([])
+        self.display_recipes(filtered_recipes)
 
     def reset_search(self):
         """Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø¨Ø­Ø«"""
@@ -508,7 +501,7 @@ class SavedRecipesWindow:
                 color["name"],
                 color["dye_type"],
                 f"{(color.get('percentage', 0.0) or 0.0):.2f}%",
-                f"EUR {(color.get('price_kg', 0.0) or 0.0):.2f}"
+                f"€{(color.get('price_kg', 0.0) or 0.0):.2f}"
             ))
 
         # ØªØ­Ø¯ÙŠØ« Ù…Ù„Ø®Øµ Ø§Ù„Ø£Ù„ÙˆØ§Ù†

@@ -11,7 +11,7 @@ def _resolve_version_file_path() -> str:
     """
     Find version.txt regardless of how the app is run:
 
-      onedir frozen  : dist/ColorChemSystem/version.txt  (next to exe)
+      onedir frozen  : dist/DyeMasterPro/version.txt  (next to exe)
       onefile frozen : Temp/_MEIxxxxxx/version.txt        (bundled)
                        OR  dist/version.txt  (written by updater)
       dev / source   : project_root/version.txt
@@ -52,15 +52,18 @@ def _resolve_app_version(default: str = "1.0.0") -> str:
 
 APP_VERSION = _resolve_app_version()
 
+APP_DISPLAY_NAME = "DyeMaster Pro"
+APP_ID = "DyeMasterPro"
+
 # ── Data directories ────────────────────────────────────────────────────── #
 # Use LOCALAPPDATA so data survives app re-installs and avoids UAC issues.
 _base_data_dir = os.environ.get("LOCALAPPDATA", str(Path.home()))
-USER_DATA_DIR  = os.path.join(_base_data_dir, "ColorChemSystem")
+USER_DATA_DIR  = os.path.join(_base_data_dir, APP_ID)
 DATA_DIR       = os.path.join(USER_DATA_DIR, "data")
 EXPORT_DIR     = os.path.join(USER_DATA_DIR, "exports")
 BACKUP_DIR     = os.path.join(USER_DATA_DIR, "backups")
 LOG_DIR        = os.path.join(USER_DATA_DIR, "logs")
-DATABASE_FILE  = os.path.join(DATA_DIR, "colorchemsystem.db")
+DATABASE_FILE  = os.path.join(DATA_DIR, "dyemasterpro.db")
 
 # ── Dye types ───────────────────────────────────────────────────────────── #
 DYE_TYPES = [
@@ -88,7 +91,7 @@ PDF_SETTINGS = {
 
 # ── GUI settings ────────────────────────────────────────────────────────── #
 GUI_SETTINGS = {
-    "window_title": "ColorChem System",
+    "window_title": APP_DISPLAY_NAME,
     "window_size":  "1200x700",
     "theme":        "clam",
     "font_family":  "Arial",

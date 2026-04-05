@@ -237,7 +237,7 @@ class PDFExporter:
             ["Rapporto Bagno", rapporto_bagno],
             ["Total Percentage", f"{PDFExporter._format_percentage_for_pdf(total_percentage)}%"],
             ["Dominant Type", str(getattr(recipe_details, "dominant_type", ""))],
-            ["Estimated Cost", f"EUR {PDFExporter._format_number_for_pdf(PDFExporter._to_float(getattr(recipe_details, 'cost', 0.0)), decimals=1)}"],
+            ["Estimated Cost", f"€{PDFExporter._format_number_for_pdf(PDFExporter._to_float(getattr(recipe_details, 'cost', 0.0)), decimals=1)}"],
         ]
         info_table = Table(info_data, colWidths=[140, 340])
         info_table.setStyle(TableStyle([
@@ -355,7 +355,7 @@ class PDFExporter:
 
         try:
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-            export_folder = os.path.join(desktop, "ColorChem_Exports")
+            export_folder = os.path.join(desktop, "DyeMasterPro_Exports")
             os.makedirs(export_folder, exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

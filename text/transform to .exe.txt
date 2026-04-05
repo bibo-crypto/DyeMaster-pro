@@ -1,10 +1,9 @@
-pyinstaller main.py --onefile --noconsole --paths=. --collect-all ColorChemSystem --icon=icon.ico --add-data "icon.ico;." --add-data "app;app" --add-data "ui;ui"
+pyinstaller main.py --onefile --noconsole --paths=. --collect-all DyeMasterPro --icon=icon.ico --add-data "icon.ico;." --add-data "app;app" --add-data "ui;ui"
 .......
-pyinstaller main.py --noconsole --name=main --paths=. --icon=icon.ico --add-data "icon.ico;." --add-data "app;app" --add-data "ui;ui" --add-data "version.txt;." --collect-all openpyxl --collect-all PIL --hidden-import=pandas --hidden-import=PIL._tkinter_finder
+pyinstaller main.py --noconsole --name=DyeMasterPro --paths=. --icon=icon.ico --add-data "icon.ico;." --add-data "app;app" --add-data "ui;ui" --add-data "version.txt;." --collect-all openpyxl --collect-all PIL --hidden-import=pandas --hidden-import=PIL._tkinter_finder
 ......
 ولو sqlite عمل مشكلة:
 --hidden-import=sqlite3 --hidden-import=_sqlite3
 ......
-Compress-Archive -Path "dist\main\*" -DestinationPath "main.zip"
+Compress-Archive -Path "dist\DyeMasterPro\*" -DestinationPath "DyeMasterPro.zip"
 ......
-
