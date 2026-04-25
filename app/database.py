@@ -1,15 +1,17 @@
-"""
+﻿"""
 مدير قاعدة البيانات
 """
 import sqlite3
 import os
 import stat
 import shutil
+import hashlib
+import tempfile
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
-from app.utils import get_current_timestamp
-from app.config import DATABASE_FILE, BACKUP_DIR
-from app.models import Color, Recipe, Chemical
+from app.utils import get_current_timestamp, clean_recipe_code
+from app.config import DATABASE_FILE, BACKUP_DIR, USER_DATA_DIR
+from app.models import Color, Recipe, Chemical, User
 from app.cache import cache_manager
 
 
@@ -194,38 +196,8 @@ class ColorManager:
                 conn.close()
 
     def get_color_by_id(self, color_id):
-        """الحصول على لون بواسطة ID"""
-        conn = None
-        try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT id, code, name, dye_type, supplier, price_kg, resa_percent, created_at, updated_at
-                FROM colors 
-                WHERE id = ?
-            """, (color_id,))
-
-            row = cursor.fetchone()
-            if row:
-                return Color(
-                    id=row[0],
-                    code=row[1],
-                    name=row[2],
-                    dye_type=row[3],
-                    supplier=row[4],
-                    price_kg=row[5],
-                    resa_percent=row[6],
-                    created_at=row[7],
-                    updated_at=row[8]
-                )
-            return None
-
-        except sqlite3.Error as e:
-            raise Exception(f"Database error: {str(e)}")
-        finally:
-            if conn:
-                conn.close()
+        """الحصول على لون بواسطة ID — يفوّض إلى DatabaseManager (النسخة الوحيدة مع Cache)"""
+        return self.db.get_color_by_id(color_id)
 
     def search_colors(self, search_term: str, search_in: str = 'both') -> List[Color]:
         """بحث في الألوان"""
@@ -308,9 +280,131 @@ class DatabaseManager:
     
     def __init__(self, db_file=None):
         """تهيئة مدير قاعدة البيانات"""
+        # Logger removed - original state
         self.db_file = db_file or DATABASE_FILE
+        self._using_workspace_fallback = False
         self.ensure_database_exists()
         self.color_manager = ColorManager(self)
+
+    def _switch_to_workspace_db(self):
+        """Fallback DB location when configured data path is read-only/unavailable."""
+        if self._using_workspace_fallback:
+            return
+        fallback_dir = os.path.join(USER_DATA_DIR, "fallback_data")
+        if not fallback_dir:
+            fallback_dir = os.path.join(tempfile.gettempdir(), "DyeMasterPro", "data")
+        os.makedirs(fallback_dir, exist_ok=True)
+        self.db_file = os.path.join(fallback_dir, "dyemasterpro.db")
+        self._using_workspace_fallback = True
+        print(f"Database fallback enabled: {self.db_file}")
+
+    def _is_db_path_writable(self) -> bool:
+        db_dir = os.path.dirname(self.db_file)
+        if db_dir and os.path.exists(db_dir) and not os.access(db_dir, os.W_OK):
+            return False
+        if os.path.exists(self.db_file) and not os.access(self.db_file, os.W_OK):
+            return False
+        return True
+
+    def get_user_by_username(self, username: str):
+        """الحصول على مستخدم حسب username"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ? AND active = 1", (username,))
+            row = cursor.fetchone()
+            if row:
+                return User(
+                    id=row[0],
+                    username=row[1],
+                    password_hash=row[2],
+                    role=row[3],
+                    created_at=row[4],
+                    last_login=row[5],
+                    active=bool(row[6])
+                )
+            return None
+        except Exception:
+            return None
+        finally:
+            if conn:
+                conn.close()
+
+    def update_user_last_login(self, user_id: int):
+        """تحديث وقت آخر تسجيل دخول"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def get_all_users(self):
+        """الحصول على جميع المستخدمين (للdebug)"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, role FROM users")
+            users = []
+            for row in cursor.fetchall():
+                users.append({'username': row[0], 'role': row[1]})
+            return users
+        except Exception:
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def create_default_users(self):
+        """Create required system users if they do not already exist."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            admin_hash = hashlib.sha256("__DEFAULT__".encode()).hexdigest()
+            tech_hash = hashlib.sha256("__DEFAULT__".encode()).hexdigest()
+            viewer_hash = hashlib.sha256("__DEFAULT__".encode()).hexdigest()
+
+            # Normalize legacy roles without deleting custom users.
+            cursor.execute("UPDATE users SET role = 'tech' WHERE role = 'technician'")
+            cursor.execute("UPDATE users SET role = 'admin', active = 1 WHERE username = 'admin'")
+            cursor.execute("UPDATE users SET role = 'tech', active = 1 WHERE username = 'tech'")
+            cursor.execute("UPDATE users SET role = 'viewer', active = 1 WHERE username = 'viewer'")
+
+            cursor.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+                ("admin", admin_hash),
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'tech')",
+                ("tech", tech_hash),
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'viewer')",
+                ("viewer", viewer_hash),
+            )
+
+            conn.commit()
+            print("Created/Verified default users: admin, tech, viewer")
+            return True
+        except Exception as e:
+            if "readonly" in str(e).lower() and not self._using_workspace_fallback:
+                self._switch_to_workspace_db()
+                return self.create_default_users()
+            print(f"Default users error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
 
     def _ensure_db_writable(self):
         """Attempt to clear read-only flags on DB path and parent directory."""
@@ -318,25 +412,31 @@ class DatabaseManager:
         if db_dir and os.path.exists(db_dir):
             try:
                 os.chmod(db_dir, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
-            except Exception:
+            except PermissionError:
                 pass
+            except Exception as e:
+                print(f"Warning: Failed to make DB dir writable: {e}")
 
         if os.path.exists(self.db_file):
             try:
                 os.chmod(self.db_file, stat.S_IREAD | stat.S_IWRITE)
-            except Exception:
+            except PermissionError:
                 pass
+            except Exception as e:
+                print(f"Warning: Failed to make DB file writable: {e}")
 
     def get_connection(self):
         """الحصول على اتصال بقاعدة البيانات"""
         self._ensure_db_writable()
+        if not self._is_db_path_writable():
+            self._switch_to_workspace_db()
         try:
             conn = sqlite3.connect(self.db_file)
             conn.execute("PRAGMA foreign_keys = ON")
             return conn
         except sqlite3.OperationalError as e:
-            if "readonly" in str(e).lower():
-                self._ensure_db_writable()
+            if "readonly" in str(e).lower() or "unable to open database file" in str(e).lower():
+                self._switch_to_workspace_db()
                 conn = sqlite3.connect(self.db_file)
                 conn.execute("PRAGMA foreign_keys = ON")
                 return conn
@@ -348,11 +448,20 @@ class DatabaseManager:
         try:
             # التأكد من وجود المجلد
             db_dir = os.path.dirname(self.db_file)
-            if db_dir and not os.path.exists(db_dir):
-                os.makedirs(db_dir, exist_ok=True)
+            if db_dir:
+                try:
+                    os.makedirs(db_dir, exist_ok=True)
+                except PermissionError:
+                    self._switch_to_workspace_db()
+                    db_dir = os.path.dirname(self.db_file)
+                    os.makedirs(db_dir, exist_ok=True)
             
             conn = self.get_connection()
             cursor = conn.cursor()
+
+            # Force a tiny write probe so read-only DBs are detected early.
+            cursor.execute("CREATE TABLE IF NOT EXISTS __dm_write_probe__ (id INTEGER)")
+            cursor.execute("DROP TABLE IF EXISTS __dm_write_probe__")
 
             # إنشاء جدول الألوان
             cursor.execute('''
@@ -408,6 +517,19 @@ class DatabaseManager:
                 )
             ''')
 
+            # إنشاء جدول المستخدمين
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP,
+                    active INTEGER DEFAULT 1
+                )
+            ''')
+
             # إضافة الأعمدة المفقودة إذا كان الجدول موجوداً
             try:
                 cursor.execute('ALTER TABLE recipes ADD COLUMN colors_count INTEGER DEFAULT 0')
@@ -422,9 +544,18 @@ class DatabaseManager:
             # إضافة الفهارس لتحسين الأداء
             self._create_indexes(cursor)
             
+            # إنشاء المستخدمين الافتراضيين (مرة واحدة)
             conn.commit()
-
+            self.create_default_users()
         except Exception as e:
+            if "readonly" in str(e).lower() and not self._using_workspace_fallback:
+                try:
+                    if conn:
+                        conn.close()
+                except Exception:
+                    pass
+                self._switch_to_workspace_db()
+                return self.ensure_database_exists()
             if conn:
                 conn.rollback()
             raise Exception(f"Error ensuring database exists: {e}")
@@ -450,10 +581,6 @@ class DatabaseManager:
                 cursor.execute(index_sql)
             except sqlite3.OperationalError:
                 pass  # الفهرس موجود بالفعل
-
-    def initialize_database(self):
-        """تهيئة قاعدة البيانات (للمرة الأولى)"""
-        self.ensure_database_exists()
 
     def _cache_key(self, name: str, *parts) -> str:
         serialized = ":".join(str(part) for part in parts)
@@ -576,13 +703,22 @@ class DatabaseManager:
                 conn.close()
 
     def delete_color_by_code(self, color_code: str) -> bool:
-        """حذف لون بواسطة الكود"""
+        """حذف لون بواسطة الكود — يتحقق أولاً من عدم الاستخدام في الريتشتات"""
+        from app.utils import clean_color_code
+        normalized = clean_color_code(color_code)
+        # منع الحذف إذا كان اللون مستخدماً في أي ريتشت
+        if self.color_manager.is_color_in_use(normalized):
+            return False
         conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-
-            cursor.execute('DELETE FROM colors WHERE code = ?', (color_code,))
+            # حذف أي ارتباطات أولاً (احتياطي فقط — المفروض مفيش بعد الفحص)
+            cursor.execute('SELECT id FROM colors WHERE code = ?', (normalized,))
+            row = cursor.fetchone()
+            if row:
+                cursor.execute('DELETE FROM recipe_colors WHERE color_id = ?', (row[0],))
+            cursor.execute('DELETE FROM colors WHERE code = ?', (normalized,))
             affected = cursor.rowcount
             conn.commit()
             if affected > 0:
@@ -833,6 +969,9 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
+            # تطبيق تنظيف وتوحيد كود الوصفة (6 أرقام مع أصفار من الشمال)
+            recipe.recipe_code = clean_recipe_code(recipe.recipe_code)
+
             # حساب إجمالي النسبة المئوية
             if not colors_data:
                 raise Exception("Recipe must contain at least one color")
@@ -939,7 +1078,13 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('SELECT * FROM recipes WHERE id = ?', (recipe_id,))
+            cursor.execute(
+                """SELECT id, recipe_code, name, created_at,
+                          COALESCE(colors_count, 0),
+                          COALESCE(total_percentage, 0.0)
+                   FROM recipes WHERE id = ?""",
+                (recipe_id,)
+            )
             row = cursor.fetchone()
 
             if row:
@@ -947,7 +1092,9 @@ class DatabaseManager:
                     id=row[0],
                     recipe_code=row[1],
                     name=row[2],
-                    created_at=row[3]
+                    created_at=row[3],
+                    colors_count=row[4],
+                    total_percentage=row[5]
                 )
                 cache_manager.set(cache_key, recipe_obj)
                 return recipe_obj
@@ -966,7 +1113,13 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('SELECT * FROM recipes WHERE recipe_code = ?', (recipe_code,))
+            cursor.execute(
+                """SELECT id, recipe_code, name, created_at,
+                          COALESCE(colors_count, 0),
+                          COALESCE(total_percentage, 0.0)
+                   FROM recipes WHERE recipe_code = ?""",
+                (recipe_code,)
+            )
             row = cursor.fetchone()
 
             if row:
@@ -974,7 +1127,9 @@ class DatabaseManager:
                     id=row[0],
                     recipe_code=row[1],
                     name=row[2],
-                    created_at=row[3]
+                    created_at=row[3],
+                    colors_count=row[4],
+                    total_percentage=row[5]
                 )
             return None
 
@@ -996,7 +1151,12 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('SELECT * FROM recipes ORDER BY created_at DESC')
+            cursor.execute(
+                """SELECT id, recipe_code, name, created_at,
+                          COALESCE(colors_count, 0),
+                          COALESCE(total_percentage, 0.0)
+                   FROM recipes ORDER BY created_at DESC"""
+            )
             rows = cursor.fetchall()
 
             recipes = []
@@ -1005,7 +1165,9 @@ class DatabaseManager:
                     id=row[0],
                     recipe_code=row[1],
                     name=row[2],
-                    created_at=row[3]
+                    created_at=row[3],
+                    colors_count=row[4],
+                    total_percentage=row[5]
                 ))
 
             cache_manager.set(cache_key, recipes)
@@ -1182,6 +1344,61 @@ class DatabaseManager:
 
         except Exception as e:
             raise Exception(f"Failed to delete recipe: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
+
+    def update_recipe(self, recipe_id: int, new_code: str, new_name: str) -> Tuple[bool, str]:
+        """تحديث كود واسم الريتشت.
+
+        القواعد:
+        - الكود أرقام فقط، حد أقصى ٦ أرقام.
+        - يُكمَّل بأصفار من اليسار حتى يصبح ٦ أرقام (66 → 000066).
+        - يجب أن يكون الكود غير مكرر في أي ريتشت آخر.
+        """
+        conn = None
+        try:
+            new_code = new_code.strip()
+            new_name = new_name.strip()
+
+            if not new_code:
+                return False, "Recipe code cannot be empty."
+            if not new_name:
+                return False, "Recipe name cannot be empty."
+            if not new_code.isdigit():
+                return False, "Recipe code must contain digits only (0-9)."
+            if len(new_code) > 6:
+                return False, "Recipe code cannot exceed 6 digits."
+
+            # Zero-pad from the left to 6 digits
+            new_code = new_code.zfill(6)
+
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            # Check for duplicate code in any other recipe
+            cursor.execute(
+                "SELECT id FROM recipes WHERE recipe_code = ? AND id != ?",
+                (new_code, recipe_id)
+            )
+            if cursor.fetchone():
+                return False, f"Recipe code '{new_code}' already exists. Choose a different code."
+
+            cursor.execute(
+                "UPDATE recipes SET recipe_code = ?, name = ? WHERE id = ?",
+                (new_code, new_name, recipe_id)
+            )
+            if cursor.rowcount == 0:
+                return False, f"Recipe with ID {recipe_id} not found."
+
+            conn.commit()
+            self._invalidate_read_cache()
+            return True, f"Recipe updated successfully (code: {new_code})."
+
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            return False, str(e)
         finally:
             if conn:
                 conn.close()
@@ -1639,7 +1856,10 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            query = "SELECT id, recipe_code, name, created_at FROM recipes WHERE 1=1"
+            query = """SELECT id, recipe_code, name, created_at,
+                          COALESCE(colors_count, 0),
+                          COALESCE(total_percentage, 0.0)
+                   FROM recipes WHERE 1=1"""
             params = []
 
             if recipe_code_filter:
@@ -1659,7 +1879,9 @@ class DatabaseManager:
                     id=row[0],
                     recipe_code=row[1],
                     name=row[2],
-                    created_at=row[3] or ""
+                    created_at=row[3] or "",
+                    colors_count=row[4],
+                    total_percentage=row[5]
                 )
                 for row in rows
             ]
@@ -1711,6 +1933,9 @@ class DatabaseManager:
         finally:
             if conn:
                 conn.close()
+
+
+
 
     def get_cache_stats(self) -> Dict:
         """الحصول على إحصائيات الـ Cache"""

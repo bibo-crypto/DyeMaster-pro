@@ -1,12 +1,12 @@
-"""
-إعدادات التطبيق
+﻿"""
+Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„ØªØ·Ø¨ÙŠÙ‚
 """
 import os
 import sys
 from pathlib import Path
 
 
-# ── Version resolution ──────────────────────────────────────────────────── #
+# â”€â”€ Version resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 def _resolve_version_file_path() -> str:
     """
     Find version.txt regardless of how the app is run:
@@ -23,7 +23,12 @@ def _resolve_version_file_path() -> str:
         if os.path.exists(candidate):
             return candidate
 
-        # 2. Check inside _MEIPASS (bundled at build time – onefile & onedir)
+        # 1.1 onedir fallback: some layouts place app data under _internal
+        candidate = os.path.join(exe_dir, "_internal", "version.txt")
+        if os.path.exists(candidate):
+            return candidate
+
+        # 2. Check inside _MEIPASS (bundled at build time â€“ onefile & onedir)
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             candidate = os.path.join(meipass, "version.txt")
@@ -42,7 +47,8 @@ def _resolve_app_version(default: str = "1.0.0") -> str:
     path = _resolve_version_file_path()
     try:
         if os.path.exists(path):
-            ver = open(path, encoding="utf-8").read().strip()
+            with open(path, encoding="utf-8") as fh:
+                ver = fh.read().strip()
             if ver:
                 return ver
     except Exception:
@@ -55,7 +61,7 @@ APP_VERSION = _resolve_app_version()
 APP_DISPLAY_NAME = "DyeMaster Pro"
 APP_ID = "DyeMasterPro"
 
-# ── Data directories ────────────────────────────────────────────────────── #
+# â”€â”€ Data directories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 # Use LOCALAPPDATA so data survives app re-installs and avoids UAC issues.
 _base_data_dir = os.environ.get("LOCALAPPDATA", str(Path.home()))
 USER_DATA_DIR  = os.path.join(_base_data_dir, APP_ID)
@@ -65,7 +71,7 @@ BACKUP_DIR     = os.path.join(USER_DATA_DIR, "backups")
 LOG_DIR        = os.path.join(USER_DATA_DIR, "logs")
 DATABASE_FILE  = os.path.join(DATA_DIR, "dyemasterpro.db")
 
-# ── Dye types ───────────────────────────────────────────────────────────── #
+# â”€â”€ Dye types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 DYE_TYPES = [
     "Indanthren IN",
     "Indanthren IN SP",
@@ -79,7 +85,7 @@ DYE_TYPES = [
     "Reattivi Oltri",
 ]
 
-# ── PDF settings ────────────────────────────────────────────────────────── #
+# â”€â”€ PDF settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 PDF_SETTINGS = {
     "page_size":        "A4",
     "margin":           20,
@@ -89,7 +95,9 @@ PDF_SETTINGS = {
     "logo_path":        None,
 }
 
-# ── GUI settings ────────────────────────────────────────────────────────── #
+# Logging settings removed - reverted to original
+
+# â”€â”€ GUI settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
 GUI_SETTINGS = {
     "window_title": APP_DISPLAY_NAME,
     "window_size":  "1200x700",
@@ -98,11 +106,3 @@ GUI_SETTINGS = {
     "font_size":    10,
 }
 
-# ── Chemical codes ──────────────────────────────────────────────────────── #
-CHEMICAL_CODES = {
-    "31180": "IDROSOLFITO",
-    "31160": "GLUCOSIO",
-    "31310": "SODA CAUSTICA",
-    "31330": "SODIO CARBONATO",
-    "31360": "SOLFATO SODICO",
-}

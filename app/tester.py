@@ -29,8 +29,8 @@ def _configure_stdout_for_unicode() -> None:
     try:
         if hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    except Exception as e:
+        logger_test.debug(f"Stdout reconfigure failed: {e}")
 
 
 _configure_stdout_for_unicode()

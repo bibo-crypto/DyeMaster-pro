@@ -7,12 +7,14 @@ from typing import List, Dict
 import os
 
 from app.database import DatabaseManager
+from app.session import SessionManager
 from app.calculator import ChemicalCalculator, CostCalculator
 from app.pdf_exporter import PDFExporter
 from app.models import Recipe, Color
-from app.utils import get_current_timestamp, parse_percentage_input
+from app.utils import get_current_timestamp, parse_percentage_input, clean_recipe_code
 from app.config import DYE_TYPES
 from app.lab_settings import load_lab_settings, save_lab_settings
+from ui.theme_tokens import setup_tree_tags, zebra_insert, get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style
 
 
 def _show_on_top(window, parent):
@@ -28,11 +30,12 @@ def _show_on_top(window, parent):
 
 
 class _AddMissingColorsWindow:
-    def __init__(self, parent, db: DatabaseManager, missing_colors: List[Dict], on_success_callback):
+    def __init__(self, parent, db: DatabaseManager, missing_colors: List[Dict], on_success_callback, dark_mode: bool = False):
         self.parent = parent
         self.db = db
         self.missing_colors = missing_colors
         self.on_success_callback = on_success_callback
+        self.dark_mode = dark_mode
 
         self.window = tk.Toplevel(parent)
         # Keep this dialog as a normal top-level window so OS title-bar
@@ -48,7 +51,7 @@ class _AddMissingColorsWindow:
         self.window.title("Register New Colors")
         self.window.geometry("900x600")
         self.window.minsize(900, 600)
-        self.window.configure(bg="#f0f0f0")
+        self.window.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
         # Keep this as a normal top-level window (with full title-bar controls).
 
         self.color_entries = []
@@ -59,13 +62,9 @@ class _AddMissingColorsWindow:
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
         style = ttk.Style(self.window)
-        style.configure('Sub.TButton',
-                        font=('Arial', 11, 'bold'),
-                        padding=10,
-                        background='#3498DB',
-                        foreground='white')
-        style.map('Sub.TButton',
-                  background=[('active', '#2980B9')])
+        palette = get_theme_tokens(self.dark_mode)
+        apply_excel_treeview_style(style, palette, self.dark_mode)
+        configure_sub_button_style(style, 'Sub.TButton', palette)
         style.configure('MissingTitle.TLabel', font=('Arial', 13, 'bold'))
         style.configure('MissingNote.TLabel', font=('Arial', 11))
         style.configure('MissingField.TLabel', font=('Arial', 11, 'bold'))
@@ -211,9 +210,11 @@ class _AddMissingColorsWindow:
 class PDFImportWindow:
     """نافذة استيراد وصفات من PDF"""
 
-    def __init__(self, parent, db: DatabaseManager):
+    def __init__(self, parent, db: DatabaseManager, dark_mode: bool = False):
         self.parent = parent
         self.db = db
+        self.session = SessionManager.get_session()
+        self.dark_mode = dark_mode
         self.imported_data = None
         self.chemicals = []
         current_lab = load_lab_settings()
@@ -230,16 +231,17 @@ class PDFImportWindow:
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.82)
+        height = int(screen_height * 0.86)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
         self.window.geometry(f"{width}x{height}+{x}+{y}")
-        self.window.configure(bg="#f0f0f0")
+        _palette = get_theme_tokens(self.dark_mode)
+        self.window.configure(bg=_palette["bg"])
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.minsize(980, 620)
+        self.window.minsize(980, 700)
 
         self.configure_styles()
         self.setup_ui()
@@ -264,13 +266,9 @@ class PDFImportWindow:
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
         style = ttk.Style(self.window)
-        style.configure('Sub.TButton',
-                        font=('Arial', 10, 'bold'),
-                        padding=6,
-                        background='#3498DB',
-                        foreground='white')
-        style.map('Sub.TButton',
-                  background=[('active', '#2980B9')])
+        palette = get_theme_tokens(self.dark_mode)
+        apply_excel_treeview_style(style, palette, self.dark_mode)
+        configure_sub_button_style(style, 'Sub.TButton', palette)
 
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
@@ -332,27 +330,36 @@ class PDFImportWindow:
 
         ttk.Label(info_grid, text="Peso (g):",
                   font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=1, padx=2)
-        lab_peso_entry = ttk.Entry(info_grid, textvariable=self.lab_peso_var,
-                                   width=12, font=('Arial', 9))
-        lab_peso_entry.grid(row=2, column=1, sticky=tk.W, pady=1, padx=5)
+        self.lab_peso_entry = ttk.Entry(info_grid, textvariable=self.lab_peso_var,
+                                        width=12, font=('Arial', 9))
+        self.lab_peso_entry.grid(row=2, column=1, sticky=tk.W, pady=1, padx=5)
 
         ttk.Label(info_grid, text="Volume (ml):",
                   font=('Arial', 9, 'bold')).grid(row=2, column=2, sticky=tk.W, pady=1, padx=10)
-        lab_volume_entry = ttk.Entry(info_grid, textvariable=self.lab_volume_var,
-                                     width=12, font=('Arial', 9))
-        lab_volume_entry.grid(row=2, column=3, sticky=tk.W, pady=1, padx=5)
+        self.lab_volume_entry = ttk.Entry(info_grid, textvariable=self.lab_volume_var,
+                                          width=12, font=('Arial', 9))
+        self.lab_volume_entry.grid(row=2, column=3, sticky=tk.W, pady=1, padx=5)
 
         ttk.Label(info_grid, text="Rapporto Bagno:",
                   font=('Arial', 9, 'bold')).grid(row=3, column=0, sticky=tk.W, pady=1, padx=2)
         ttk.Entry(info_grid, textvariable=self.lab_rapporto_var,
                   width=12, font=('Arial', 9), state='readonly').grid(row=3, column=1, sticky=tk.W, pady=1, padx=5)
-        ttk.Button(info_grid, text="Save Changes",
-                   command=self._save_lab_settings_changes,
-                   width=14, style='Sub.TButton').grid(row=2, column=4, rowspan=2, padx=10, pady=1, sticky=tk.W)
+        self.lab_save_btn = ttk.Button(
+            info_grid,
+            text="Save Changes",
+            command=self._save_lab_settings_changes,
+            width=14,
+            style='Sub.TButton'
+        )
+        self.lab_save_btn.grid(row=2, column=4, rowspan=2, padx=10, pady=1, sticky=tk.W)
 
-        lab_peso_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
-        lab_volume_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        self.lab_peso_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        self.lab_volume_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
         self._update_lab_rapporto()
+        if not self.session.has_permission("can_edit_lab_settings"):
+            self.lab_peso_entry.configure(state="readonly")
+            self.lab_volume_entry.configure(state="readonly")
+            self.lab_save_btn.state(["disabled"])
 
         # إطار الألوان المستوردة (أصغر)
         colors_frame = ttk.LabelFrame(self.window, text=f"Imported Colors", padding=8)
@@ -363,7 +370,7 @@ class PDFImportWindow:
             colors_frame,
             columns=("code", "name", "dye_type", "percentage", "price", "status"),
             show="headings",
-            height=4  # ⬅️ ارتفاع أقل
+            height=3  # keep more space for footer buttons on smaller screens
         )
 
         # عناوين الأعمدة
@@ -386,6 +393,7 @@ class PDFImportWindow:
         self.colors_tree.configure(yscrollcommand=scrollbar_colors.set)
         scrollbar_colors.pack(side=tk.RIGHT, fill=tk.Y)
         self.colors_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        setup_tree_tags(self.colors_tree, self.dark_mode)
 
         # إطار الكيماويات (أصغر)
         chemicals_frame = ttk.LabelFrame(self.window, text="Calculated Chemicals", padding=8)
@@ -396,7 +404,7 @@ class PDFImportWindow:
             chemicals_frame,
             columns=("code", "name", "quantity", "unit"),
             show="headings",
-            height=3  # ⬅️ ارتفاع أقل
+            height=2  # keep more space for footer buttons on smaller screens
         )
 
         self.chemicals_tree.heading("code", text="Code", anchor="center")
@@ -413,29 +421,30 @@ class PDFImportWindow:
         self.chemicals_tree.configure(yscrollcommand=scrollbar_chem.set)
         scrollbar_chem.pack(side=tk.RIGHT, fill=tk.Y)
         self.chemicals_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        setup_tree_tags(self.chemicals_tree, self.dark_mode)
 
         # أزرار التحكم (في الأسفل)
         control_frame = ttk.Frame(self.window)
-        control_frame.pack(fill=tk.X, padx=10, pady=(5, 10), side=tk.BOTTOM)  # ⬅️ في الأسفل
+        control_frame.pack(fill=tk.X, padx=10, pady=(2, 6), side=tk.BOTTOM)
 
         # صف الأزرار
         button_row = ttk.Frame(control_frame)
-        button_row.pack(fill=tk.X, pady=5)
+        button_row.pack(fill=tk.X, pady=1)
 
         # الأزرار بأحجام متساوية
         ttk.Button(button_row, text="Save Recipe",
-                   command=self.save_recipe, width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=2)
+                   command=self.save_recipe, width=16, style='Sub.TButton').pack(side=tk.LEFT, padx=2)
 
         ttk.Button(button_row, text="Export as PDF",
-                   command=self.export_pdf, width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=2)
+                   command=self.export_pdf, width=16, style='Sub.TButton').pack(side=tk.LEFT, padx=2)
 
         self.register_colors_button = ttk.Button(button_row, text="Register Colors",
-                                                command=self.register_missing_colors, width=20, style='Sub.TButton')
+                                                command=self.register_missing_colors, width=16, style='Sub.TButton')
         self.register_colors_button.pack(side=tk.LEFT, padx=2)
         self.register_colors_button.pack_forget()  # Initially hidden
 
         ttk.Button(button_row, text="Close",
-                   command=self.window.destroy, width=20, style='Sub.TButton').pack(side=tk.RIGHT, padx=2)
+                   command=self.window.destroy, width=16, style='Sub.TButton').pack(side=tk.RIGHT, padx=2)
 
     def _safe_positive_float(self, raw_value: str, fallback: float) -> float:
         try:
@@ -475,6 +484,9 @@ class PDFImportWindow:
         return {"sample_g": sample_g, "volume_ml": volume_ml}
 
     def _save_lab_settings_changes(self):
+        if not self.session.has_permission("can_edit_lab_settings"):
+            messagebox.showwarning("Permission Denied", "You do not have permission to edit lab settings.", parent=self.window)
+            return
         params = self._get_lab_params()
         saved = save_lab_settings(params["sample_g"], params["volume_ml"])
         self.lab_peso_var.set(f"{saved['sample_g']:.2f}")
@@ -584,7 +596,7 @@ class PDFImportWindow:
         self.imported_data['total_percentage'] = calculated_total
 
         self.recipe_name_var.set(self.imported_data.get('recipe_name', 'Imported Recipe'))
-        self.recipe_code_var.set(self.imported_data.get('recipe_code', ''))
+        self.recipe_code_var.set(clean_recipe_code(self.imported_data.get('recipe_code', '')))
         # سيتم تحديث نوع الصبغة في recalculate_chemicals
         self.dye_type_var.set("Calculating...")
         self.total_percent_var.set(f"{calculated_total:.4f}%")
@@ -609,7 +621,7 @@ class PDFImportWindow:
             if not color['exists_in_db']:
                 missing_colors.append(f"{color['code']} - {color['name']}")
 
-            self.colors_tree.insert("", tk.END, values=(
+            zebra_insert(self.colors_tree, (
                 color['code'],
                 color['name'],
                 color['dye_type'],
@@ -674,7 +686,7 @@ class PDFImportWindow:
                 self.chemicals_tree.delete(item)
 
             for chemical in self.chemicals:
-                self.chemicals_tree.insert("", tk.END, values=(
+                zebra_insert(self.chemicals_tree, (
                     chemical.code,
                     chemical.name,
                     chemical.quantity,
@@ -764,7 +776,7 @@ class PDFImportWindow:
     def _finalize_save(self, colors_to_save):
         """The actual logic to save the recipe to the database."""
         try:
-            recipe_code = self.recipe_code_var.get().strip()
+            recipe_code = clean_recipe_code(self.recipe_code_var.get().strip())
             recipe_name = self.recipe_name_var.get().strip()
 
             recipe_obj = Recipe(
@@ -848,7 +860,7 @@ class PDFImportWindow:
 
             recipe_obj = Recipe(
                 id=0,
-                recipe_code=self.recipe_code_var.get(),
+                recipe_code=clean_recipe_code(self.recipe_code_var.get()),
                 name=self.recipe_name_var.get(),
                 created_at=get_current_timestamp()
             )
@@ -882,4 +894,4 @@ class PDFImportWindow:
 
         # The self.missing_colors_list is already populated by update_ui,
         # so we can use it directly.
-        _AddMissingColorsWindow(self.window, self.db, self.missing_colors_list, self._on_colors_registered)
+        _AddMissingColorsWindow(self.window, self.db, self.missing_colors_list, self._on_colors_registered, dark_mode=self.dark_mode)

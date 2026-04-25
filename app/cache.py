@@ -1,10 +1,9 @@
 """
 نظام Cache لتحسين الأداء
 """
-from typing import Any, Dict, Optional, List, Callable
+from typing import Any, Dict, Optional, List
 from threading import Lock
 from datetime import datetime, timedelta
-from functools import wraps
 
 
 class CacheManager:
@@ -101,26 +100,6 @@ class CacheManager:
         else:
             return f"{total_size / (1024 * 1024):.2f} MB"
     
-    def cache_decorator(self, ttl: Optional[int] = None) -> Callable:
-        """Decorator لتخزين نتائج الدوال"""
-        def decorator(func: Callable) -> Callable:
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                # إنشاء مفتاح من اسم الدالة والمعاملات
-                cache_key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
-                
-                # محاولة الحصول من الـ Cache
-                cached_result = self.get(cache_key)
-                if cached_result is not None:
-                    return cached_result
-                
-                # تنفيذ الدالة وحفظ النتيجة
-                result = func(*args, **kwargs)
-                self.set(cache_key, result, ttl)
-                return result
-            
-            return wrapper
-        return decorator
 
 
 class PaginationHelper:
@@ -165,16 +144,6 @@ class PaginationHelper:
             'prev_page': page - 1 if page > 1 else None
         }
     
-    @staticmethod
-    def paginate_query(query_result: List[Any], page: int = 1, per_page: int = 10) -> tuple:
-        """
-        تقسيم نتائج الاستعلام
-        
-        Returns:
-            (items, total_pages, current_page)
-        """
-        result = PaginationHelper.paginate(query_result, page, per_page)
-        return result['items'], result['total_pages'], result['page']
 
 
 # Global cache manager

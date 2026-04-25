@@ -1,4 +1,4 @@
-﻿"""PDF export utilities."""
+"""PDF export utilities."""
 import os
 from datetime import datetime
 from tkinter import filedialog

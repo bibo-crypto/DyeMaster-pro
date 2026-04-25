@@ -13,15 +13,16 @@ if os.name == "nt":
 # في حالة تشغيل الملف مباشرة من زر Run في VSCode باستخدام مفسر خارجي (غير venv)،
 # نحاول إعادة التشغيل مع المفسر الموجود في venv المحلي إذا كان موجود.
 def _find_local_venv_python():
+    base_dir = Path(__file__).resolve().parent
     candidates = [
-        Path("venv/Scripts/python.exe"),
-        Path(".venv/Scripts/python.exe"),
-        Path("venv/bin/python"),
-        Path(".venv/bin/python"),
+        base_dir / "venv" / "Scripts" / "python.exe",
+        base_dir / ".venv" / "Scripts" / "python.exe",
+        base_dir / "venv" / "bin" / "python",
+        base_dir / ".venv" / "bin" / "python",
     ]
     for p in candidates:
         if p.exists():
-            return str(p)
+            return str(p.resolve())
     return None
 
 
@@ -37,29 +38,64 @@ def _is_venv_active():
 
 
 def _ensure_venv():
-    # In frozen build, لا يعمل.
+    # In frozen build, do nothing.
     if getattr(sys, 'frozen', False):
         return
+
+    preferred_python = _find_local_venv_python()
+    current = os.path.abspath(sys.executable)
+
+    if preferred_python:
+        preferred_python = os.path.abspath(preferred_python)
+        if os.path.normcase(current) != os.path.normcase(preferred_python):
+            print(f"Switching Python interpreter from {current} to {preferred_python}")
+            try:
+                os.execv(preferred_python, [preferred_python] + sys.argv)
+            except Exception as e:
+                print(f"Failed to exec preferred venv Python: {e}")
 
     if _is_venv_active():
         print(f"Using active interpreter: {sys.executable}")
         return
 
-    venv_python = _find_local_venv_python()
-    if venv_python:
-        venv_python = os.path.abspath(venv_python)
-        current = os.path.abspath(sys.executable)
-        if os.path.normcase(current) != os.path.normcase(venv_python):
-            print(f"Switching Python interpreter from {current} to {venv_python}")
-            try:
-                os.execv(venv_python, [venv_python] + sys.argv)
-            except Exception as e:
-                print(f"Failed to exec venv Python: {e}")
-    else:
-        print("توجد بيئة افتراضية (venv) محلية غير موجودة؛ استخدم venv\\Scripts\\activate في VSCode")
+    if not preferred_python:
+        print("Local virtual environment not found. Activate venv\\Scripts\\activate in VSCode.")
 
 
 _ensure_venv()
+
+
+def _configure_tk_env():
+    """Best-effort Tcl/Tk path setup for environments with broken defaults."""
+    if os.environ.get("TCL_LIBRARY") and os.environ.get("TK_LIBRARY"):
+        return
+
+    candidates = []
+
+    # Project-local bundled Tcl/Tk (if present).
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tcl"))
+
+    # Typical Python install location near current interpreter.
+    candidates.append(os.path.join(os.path.dirname(sys.executable), "tcl"))
+
+    # Known Windows locations used in this environment.
+    local = os.environ.get("LOCALAPPDATA", "")
+    appdata = os.environ.get("APPDATA", "")
+    if local:
+        candidates.append(os.path.join(local, "Programs", "Python", "Python314", "tcl"))
+    if appdata:
+        candidates.append(os.path.join(appdata, "uv", "python", "cpython-3.14.3-windows-x86_64-none", "tcl"))
+
+    for base in candidates:
+        tcl_dir = os.path.join(base, "tcl8.6")
+        tk_dir = os.path.join(base, "tk8.6")
+        if os.path.isdir(tcl_dir) and os.path.isdir(tk_dir):
+            os.environ.setdefault("TCL_LIBRARY", tcl_dir)
+            os.environ.setdefault("TK_LIBRARY", tk_dir)
+            return
+
+
+_configure_tk_env()
 
 
 def _trace_startup(message: str) -> None:
@@ -107,7 +143,7 @@ def acquire_single_instance():
         except Exception as e:
             print(f"[single-instance] mutex lock error: {e}")
             _trace_startup(f"single-instance mutex error: {e}")
-            return None
+            raise RuntimeError(f"Single-instance mutex initialization failed: {e}") from e
 
     # Non-Windows fallback uses localhost port.
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -148,65 +184,70 @@ def _restore_pending_database():
 
 
 def main():
-    """الدالة الرئيسية لتشغيل التطبيق"""
+    """الدخول → Login Screen → GUI"""
     _trace_startup("main() started")
-    _restore_pending_database()
     lock_socket = acquire_single_instance()
     if lock_socket is None:
-        # إذا كانت نسخة أخرى بالفعل تعمل، نمنع فتح نسخة جديدة ونخرج فوراً بدون شاشة إضافية
         print("[single-instance] another instance already running; exiting")
         _trace_startup("single-instance lock not acquired; exiting")
         sys.exit(0)
+    _restore_pending_database()
 
     try:
-        # إنشاء النافذة الرئيسية
         root = tk.Tk()
         _trace_startup("tk root created")
-        from app.config import APP_VERSION
-        root.title(f"DyeMaster Pro v{APP_VERSION}")
-        root.geometry("1200x700")
+        
+        # نظام Login الجديد ✅
+        from ui.login_window import LoginWindow
 
-        from app.licensing import ensure_license_activated
-        if not ensure_license_activated(root):
-            _trace_startup("license activation cancelled/failed; exiting")
-            root.destroy()
-            sys.exit(0)
-        _trace_startup("license activation OK")
+        login_success = [False]
 
-        # محاولة استيراد وتشغيل الواجهة
-        try:
-            from app.gui import DyeMasterProGUI
-            app = DyeMasterProGUI(root)
-            print("GUI created successfully")
-            _trace_startup("GUI created, entering mainloop")
-            app.run()
-            _trace_startup("mainloop exited")
-        except Exception as e:
-            # إذا فشل تحميل GUI، اعرض رسالة خطأ
-            import traceback
-            traceback.print_exc()
-            _trace_startup(f"GUI exception: {e}")
-            messagebox.showerror("Error", f"Failed to load GUI: {str(e)}")
-            root.destroy()
+        def on_login_success():
+            login_success[0] = True
+
+        LoginWindow(root, on_success_callback=on_login_success)
+        root.mainloop()
+
+        if login_success[0]:
+            show_main_gui()
+        
     except Exception as e:
         import traceback
         traceback.print_exc()
         _trace_startup(f"fatal exception: {e}")
         try:
             messagebox.showerror("Fatal Error", f"Application error: {str(e)}")
-        except Exception:
+        except:
             print(f"Fatal Error: {e}")
         sys.exit(1)
     finally:
-        # تحرير القفل عند انتهاء العملية
-        _trace_startup("main() cleanup/finally")
+        _trace_startup("main() cleanup")
         try:
-            if os.name == "nt" and isinstance(lock_socket, int):
+            if os.name == "nt":
                 ctypes.windll.kernel32.CloseHandle(lock_socket)
-            else:
+            elif lock_socket:
                 lock_socket.close()
-        except Exception:
+        except:
             pass
+
+def show_main_gui():
+    """عرض الـ GUI الرئيسي بعد Login الناجح"""
+    from app.config import APP_VERSION
+
+    root = tk.Tk()
+    root.title(f"DyeMaster Pro v{APP_VERSION}")
+    root.geometry("1200x700")
+    
+    try:
+        from app.gui import DyeMasterProGUI
+        app = DyeMasterProGUI(root)
+        print("✅ Login → GUI loaded successfully")
+        app.run()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        messagebox.showerror("Error", f"Failed to load main GUI: {str(e)}")
+        root.destroy()
 
 
 if __name__ == "__main__":

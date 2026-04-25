@@ -1,17 +1,18 @@
 ﻿"""
-Ù†Ø§ÙØ°Ø© Ø¥Ù†Ø´Ø§Ø¡ ÙˆØµÙØ© Ø¬Ø¯ÙŠØ¯Ø©
+نافذة إنشاء وصفة جديدة
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Dict
 
 from app.database import DatabaseManager
+from app.session import SessionManager
 from app.calculator import ChemicalCalculator, CostCalculator
 from app.utils import clean_recipe_code, validate_recipe_code_input, get_current_timestamp
 from app.models import Recipe
 from app.config import DYE_TYPES
 from app.lab_settings import load_lab_settings, save_lab_settings
-from ui.theme_tokens import LIGHT_THEME, configure_sub_button_style
+from ui.theme_tokens import configure_sub_button_style, setup_tree_tags, zebra_insert, get_theme_tokens, apply_excel_treeview_style
 
 
 def _show_on_top(window, parent):
@@ -27,19 +28,21 @@ def _show_on_top(window, parent):
 
 
 class RecipeCreatorWindow:
-    """Ù†Ø§ÙØ°Ø© Ø¥Ù†Ø´Ø§Ø¡ ÙˆØµÙØ© Ø¬Ø¯ÙŠØ¯Ø©"""
+    """نافذة إنشاء وصفة جديدة"""
 
-    def __init__(self, parent, db: DatabaseManager):
+    def __init__(self, parent, db: DatabaseManager, dark_mode: bool = False):
         self.parent = parent
         self.db = db
-        self.indanthren_colors = []  # ØªØ®Ø²ÙŠÙ† Ø£Ù„ÙˆØ§Ù† Indanthren
-        self.reattivi_colors = []  # ØªØ®Ø²ÙŠÙ† Ø£Ù„ÙˆØ§Ù† Reattivi (Caldi + Freddi + Other)
+        self.session = SessionManager.get_session()
+        self.dark_mode = dark_mode
+        self.indanthren_colors = []  # تخزين ألوان Indanthren
+        self.reattivi_colors = []  # تخزين ألوان Reattivi (Caldi + Freddi + Other)
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
         self.window.title("Create New Recipe")
         
-        # Ø¶Ø¨Ø· Ø£Ø¨Ø¹Ø§Ø¯ Ø§Ù„Ù†Ø§ÙØ°Ø© Ù„ØªÙƒÙˆÙ† Ù…ØªØ¬Ø§ÙˆØ¨Ø©
+        # ضبط أبعاد النافذة لتكون متجاوبة
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
@@ -48,16 +51,16 @@ class RecipeCreatorWindow:
         y = (screen_height - height) // 2
         
         self.window.geometry(f"{width}x{height}+{x}+{y}")
-        self.window.configure(bg="#f0f0f0")
+        self.window.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
         
-        # Ø§Ù„Ø³Ù…Ø§Ø­ Ø¨Ø§Ù„ØªÙƒØ¨ÙŠØ± ÙˆØ§Ù„ØªØµØºÙŠØ± ÙˆØ¥Ø¸Ù‡Ø§Ø± Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ…
+        # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.minsize(980, 700)
+        self.window.minsize(980, 780)
 
         # Keep it as a normal top-level window so Windows title-bar controls
         # (Close / Restore / Minimize) remain fully available.
 
-        # Ù…ØªØºÙŠØ±Ø§Øª
+        # متغيرات
         self.selected_colors: List[Dict] = []
         self._tree_sort_state = {}
         self.recipe_code_var = tk.StringVar()
@@ -67,16 +70,16 @@ class RecipeCreatorWindow:
         self.lab_volume_var = tk.StringVar(value=f"{current_lab['volume_ml']:.2f}")
         self.lab_rapporto_var = tk.StringVar(value="")
 
-        # Ù…ØªØºÙŠØ±Ø§Øª Ø§Ù„Ø¨Ø­Ø« Ù„ÙƒÙ„ ØªØ¨ÙˆÙŠØ¨
+        # متغيرات البحث لكل تبويب
         self.search_code_var_ind = tk.StringVar()
         self.search_name_var_ind = tk.StringVar()
         self.search_code_var_rea = tk.StringVar()
         self.search_name_var_rea = tk.StringVar()
 
-        # ØªÙ‡ÙŠØ¦Ø© Ø§Ù„Ø£Ù†Ù…Ø§Ø·
+        # تهيئة الأنماط
         self.configure_styles()
 
-        # Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©
+        # إنشاء الواجهة
         self.setup_ui()
         self._lab_settings_bind_id = self.parent.bind(
             "<<LabSettingsChanged>>",
@@ -85,7 +88,7 @@ class RecipeCreatorWindow:
         )
         self.window.bind("<Destroy>", self._on_window_destroy, add="+")
 
-        # ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø£Ù„ÙˆØ§Ù† Ø§Ù„Ù…ØªØ§Ø­Ø©
+        # تحميل الألوان المتاحة
         self.load_available_colors()
 
     def _on_window_destroy(self, event=None):
@@ -100,66 +103,100 @@ class RecipeCreatorWindow:
             pass
 
     def configure_styles(self):
-        """ØªÙƒÙˆÙŠÙ† Ø£Ù†Ù…Ø§Ø· Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©"""
+        """تكوين أنماط الواجهة"""
         style = ttk.Style(self.window)
-        configure_sub_button_style(style, 'Sub.TButton', LIGHT_THEME)
+        palette = get_theme_tokens(self.dark_mode)
+        apply_excel_treeview_style(style, palette, self.dark_mode)
+        configure_sub_button_style(style, 'Sub.TButton', palette)
 
     def setup_ui(self):
-        """Ø¥Ø¹Ø¯Ø§Ø¯ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…"""
-        # Ø¥Ø·Ø§Ø± Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„ÙˆØµÙØ©
-        info_frame = ttk.LabelFrame(self.window, text="Recipe Information", padding=5)
-        info_frame.pack(fill=tk.X, padx=10, pady=2)
+        """إعداد واجهة المستخدم"""
+        # إطار معلومات الوصفة
+        info_frame = ttk.LabelFrame(self.window, text="Recipe Information", padding=2)
+        info_frame.pack(fill=tk.X, padx=10, pady=0)
 
-        # ÙƒÙˆØ¯ Ø§Ù„ÙˆØµÙØ©
-        ttk.Label(info_frame, text="Recipe Code* (6 digits):").grid(row=0, column=0, padx=5, pady=3, sticky="e")
+        # كود الوصفة
+        ttk.Label(info_frame, text="Recipe Code* (6 digits):").grid(row=0, column=0, padx=5, pady=2, sticky="e")
         self.code_entry = ttk.Entry(info_frame, textvariable=self.recipe_code_var, width=18)
-        self.code_entry.grid(row=0, column=1, padx=5, pady=3, sticky="w")
+        self.code_entry.grid(row=0, column=1, padx=5, pady=2, sticky="w")
         self.code_entry.focus()
 
-        # Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµØ­Ø© Ø§Ù„Ø¥Ø¯Ø®Ø§Ù„
+        # التحقق من صحة الإدخال
         self.code_entry.configure(
             validate='key',
             validatecommand=(self.window.register(self.validate_recipe_code_input), '%P')
         )
 
-        # Ø§Ø³Ù… Ø§Ù„ÙˆØµÙØ©
-        ttk.Label(info_frame, text="Recipe Name*:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
+        # اسم الوصفة
+        ttk.Label(info_frame, text="Recipe Name*:").grid(row=0, column=2, padx=5, pady=2, sticky="e")
         name_entry = ttk.Entry(info_frame, textvariable=self.recipe_name_var, width=35)
-        name_entry.grid(row=0, column=3, padx=5, pady=3, sticky="w")
+        name_entry.grid(row=0, column=3, padx=5, pady=2, sticky="w")
 
         ttk.Separator(info_frame, orient=tk.VERTICAL).grid(row=0, column=4, sticky="ns", padx=12)
-        ttk.Label(info_frame, text="Peso (g):").grid(row=0, column=5, padx=(4, 2), pady=3, sticky="e")
-        lab_peso_entry = ttk.Entry(info_frame, textvariable=self.lab_peso_var, width=8)
-        lab_peso_entry.grid(row=0, column=6, padx=2, pady=3, sticky="w")
+        ttk.Label(info_frame, text="Peso (g):").grid(row=0, column=5, padx=(4, 2), pady=2, sticky="e")
+        self.lab_peso_entry = ttk.Entry(info_frame, textvariable=self.lab_peso_var, width=8)
+        self.lab_peso_entry.grid(row=0, column=6, padx=2, pady=2, sticky="w")
 
-        ttk.Label(info_frame, text="Volume (ml):").grid(row=0, column=7, padx=(8, 2), pady=3, sticky="e")
-        lab_volume_entry = ttk.Entry(info_frame, textvariable=self.lab_volume_var, width=8)
-        lab_volume_entry.grid(row=0, column=8, padx=2, pady=3, sticky="w")
+        ttk.Label(info_frame, text="Volume (ml):").grid(row=0, column=7, padx=(8, 2), pady=2, sticky="e")
+        self.lab_volume_entry = ttk.Entry(info_frame, textvariable=self.lab_volume_var, width=8)
+        self.lab_volume_entry.grid(row=0, column=8, padx=2, pady=2, sticky="w")
 
-        ttk.Label(info_frame, text="Rapporto Bagno:").grid(row=0, column=9, padx=(8, 2), pady=3, sticky="e")
+        ttk.Label(info_frame, text="Rapporto Bagno:").grid(row=0, column=9, padx=(8, 2), pady=2, sticky="e")
         lab_rapporto_entry = ttk.Entry(info_frame, textvariable=self.lab_rapporto_var, width=10, state="readonly")
-        lab_rapporto_entry.grid(row=0, column=10, padx=2, pady=3, sticky="w")
+        lab_rapporto_entry.grid(row=0, column=10, padx=2, pady=2, sticky="w")
 
-        ttk.Button(info_frame, text="Save Changes",
-                   command=self._save_lab_settings_changes,
-                   width=12, style='Sub.TButton').grid(row=0, column=11, padx=(10, 2), pady=3, sticky="w")
+        self.lab_save_btn = ttk.Button(
+            info_frame,
+            text="Save Changes",
+            command=self._save_lab_settings_changes,
+            width=12,
+            style='Sub.TButton'
+        )
+        self.lab_save_btn.grid(row=0, column=11, padx=(10, 2), pady=2, sticky="w")
 
-        lab_peso_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
-        lab_volume_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        self.lab_peso_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
+        self.lab_volume_entry.bind("<KeyRelease>", lambda _e: self._update_lab_rapporto())
         self._update_lab_rapporto()
+        if not self.session.has_permission("can_edit_lab_settings"):
+            self.lab_peso_entry.configure(state="readonly")
+            self.lab_volume_entry.configure(state="readonly")
+            self.lab_save_btn.state(["disabled"])
 
-        # ======== Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ: ØªØ¨ÙˆÙŠØ¨Ø§Øª Ø§Ù„Ø£Ù„ÙˆØ§Ù† ========
-        # Ø¥Ù†Ø´Ø§Ø¡ Notebook Ù„Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª
+        # ── أزرار التحكم — تُحزم قبل الـ notebook عشان تبقى دايمًا ظاهرة ──
+        button_frame = ttk.LabelFrame(self.window, text="Actions", padding=8)
+        button_frame.pack(fill=tk.X, padx=10, pady=(4, 6), side=tk.BOTTOM)
+
+        button_row = ttk.Frame(button_frame)
+        button_row.pack(fill=tk.X, pady=4)
+
+        ttk.Button(button_row, text="💾  Save Recipe Only",
+                   command=self.save_recipe_only,
+                   width=22, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(button_row, text="📄  Save & Export PDF",
+                   command=self.save_and_export,
+                   width=22, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(button_row, text="🧪  Show Chemicals",
+                   command=self.show_chemicals_details,
+                   width=22, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(button_row, text="✖  Close Window",
+                   command=self.window.destroy,
+                   width=18, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
+
+        # ======== التعديل الأساسي: تبويبات الألوان ========
+        # إنشاء Notebook للتبويبات
         notebook = ttk.Notebook(self.window)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=2)
 
-        # ====== ØªØ¨ÙˆÙŠØ¨ INDANTHREN ======
+        # ====== تبويب INDANTHREN ======
         indanthren_frame = ttk.Frame(notebook, padding=5)
         notebook.add(indanthren_frame, text="INDANTHREN")
 
-        # Ø¥Ø·Ø§Ø± Ø§Ù„Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Indanthren
-        search_frame_ind = ttk.LabelFrame(indanthren_frame, text="INDANTHREN Filters", padding=8)
-        search_frame_ind.pack(fill=tk.X, pady=(0, 5))
+        # إطار البحث في تبويب Indanthren
+        search_frame_ind = ttk.LabelFrame(indanthren_frame, text="INDANTHREN Filters", padding=3)
+        search_frame_ind.pack(fill=tk.X, pady=(0, 2))
 
         ttk.Label(search_frame_ind, text="Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
         self.search_code_entry_ind = ttk.Entry(search_frame_ind, textvariable=self.search_code_var_ind, width=15)
@@ -174,12 +211,12 @@ class RecipeCreatorWindow:
         ttk.Button(search_frame_ind, text="Clear",
                    command=self.reset_search_ind, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
 
-        # Ø´Ø¬Ø±Ø© Ø£Ù„ÙˆØ§Ù† Indanthren
+        # شجرة ألوان Indanthren
         self.indanthren_tree = ttk.Treeview(
             indanthren_frame,
             columns=("code", "name", "dye_type", "supplier", "price", "resa", "created"),
             show="headings",
-            height=7
+            height=6
         )
 
         self.indanthren_tree.heading("code", text="Color Code")
@@ -205,14 +242,15 @@ class RecipeCreatorWindow:
 
         self.indanthren_tree.bind("<Double-1>", lambda e: self.on_color_double_click("indanthren"))
         self._setup_treeview_sorting(self.indanthren_tree)
+        setup_tree_tags(self.indanthren_tree, self.dark_mode)
 
-        # ====== ØªØ¨ÙˆÙŠØ¨ REATTIVI ======
+        # ====== تبويب REATTIVI ======
         reattivi_frame = ttk.Frame(notebook, padding=5)
         notebook.add(reattivi_frame, text="REATTIVI")
 
-        # Ø¥Ø·Ø§Ø± Ø§Ù„Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Reattivi
-        search_frame_rea = ttk.LabelFrame(reattivi_frame, text="REATTIVI Filters", padding=8)
-        search_frame_rea.pack(fill=tk.X, pady=(0, 5))
+        # إطار البحث في تبويب Reattivi
+        search_frame_rea = ttk.LabelFrame(reattivi_frame, text="REATTIVI Filters", padding=3)
+        search_frame_rea.pack(fill=tk.X, pady=(0, 2))
 
         ttk.Label(search_frame_rea, text="Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
         self.search_code_entry_rea = ttk.Entry(search_frame_rea, textvariable=self.search_code_var_rea, width=15)
@@ -227,12 +265,12 @@ class RecipeCreatorWindow:
         ttk.Button(search_frame_rea, text="Clear",
                    command=self.reset_search_rea, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
 
-        # Ø´Ø¬Ø±Ø© Ø£Ù„ÙˆØ§Ù† Reattivi
+        # شجرة ألوان Reattivi
         self.reattivi_tree = ttk.Treeview(
             reattivi_frame,
             columns=("code", "name", "dye_type", "supplier", "price", "resa", "created"),
             show="headings",
-            height=7
+            height=6
         )
 
         self.reattivi_tree.heading("code", text="Color Code")
@@ -258,34 +296,35 @@ class RecipeCreatorWindow:
 
         self.reattivi_tree.bind("<Double-1>", lambda e: self.on_color_double_click("reattivi"))
         self._setup_treeview_sorting(self.reattivi_tree)
+        setup_tree_tags(self.reattivi_tree, self.dark_mode)
 
-        # ======== Ø¨Ø§Ù‚ÙŠ Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© ÙƒÙ…Ø§ Ù‡ÙŠ ========
-        # Ø¥Ø·Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ… ÙÙŠ Ø§Ù„Ø¥Ø¶Ø§ÙØ©
-        control_frame = ttk.LabelFrame(self.window, text="Controls", padding=8)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=3)
+        # ======== باقي الواجهة كما هي ========
+        # إطار التحكم في الإضافة
+        control_frame = ttk.LabelFrame(self.window, text="Controls", padding=6)
+        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=1, anchor="n")
 
-        # Ø­Ù‚Ù„ Ø§Ù„Ù†Ø³Ø¨Ø© Ø§Ù„Ù…Ø¦ÙˆÙŠØ©
-        ttk.Label(control_frame, text="Percentage (%):").pack(pady=3)
+        # حقل النسبة المئوية
+        ttk.Label(control_frame, text="Percentage (%):").pack(pady=(0, 1))
         self.percentage_entry = ttk.Entry(control_frame, width=8)
-        self.percentage_entry.pack(pady=3)
+        self.percentage_entry.pack(pady=(0, 2))
         self.percentage_entry.bind('<Return>', lambda e: self.add_selected_color())
 
-        # Ø²Ø± Ø§Ù„Ø¥Ø¶Ø§ÙØ©
-        ttk.Button(control_frame, text="Add Color", command=self.add_selected_color, width=12, style='Sub.TButton').pack(pady=5)
+        # زر الإضافة
+        ttk.Button(control_frame, text="Add Color", command=self.add_selected_color, width=12, style='Sub.TButton').pack(pady=(1, 2))
 
-        # Ø²Ø± Ø§Ù„Ø­Ø°Ù
-        ttk.Button(control_frame, text="Remove Selected", command=self.remove_selected_color, width=16, style='Sub.TButton').pack(pady=3)
+        # زر الحذف
+        ttk.Button(control_frame, text="Remove Selected", command=self.remove_selected_color, width=16, style='Sub.TButton').pack(pady=1)
 
-        # Ù†Ù‚Ù„ Ø²Ø± Ø§Ù„Ù…Ø³Ø­ Ø§Ù„ÙƒØ§Ù…Ù„ Ø¥Ù„Ù‰ Ø¹Ù…ÙˆØ¯ Ø§Ù„ØªØ­ÙƒÙ… Ø£Ø³ÙÙ„ Remove Selected
+        # نقل زر المسح الكامل إلى عمود التحكم أسفل Remove Selected
         ttk.Button(control_frame, text="Clear All Colors",
                    command=self.clear_all_colors,
-                   width=16, style='Sub.TButton').pack(pady=5)
+                   width=18, style='Sub.TButton').pack(pady=(1, 0))
 
-        # Ø¥Ø·Ø§Ø± Ø§Ù„Ø£Ù„ÙˆØ§Ù† Ø§Ù„Ù…Ø¶Ø§ÙØ©
+        # إطار الألوان المضافة
         selected_frame = ttk.LabelFrame(self.window, text="Added Colors", padding=8)
         selected_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10), pady=3)
 
-        # Ø´Ø¬Ø±Ø© Ø§Ù„Ø£Ù„ÙˆØ§Ù† Ø§Ù„Ù…Ø¶Ø§ÙØ©
+        # شجرة الألوان المضافة
         self.selected_tree = ttk.Treeview(
             selected_frame,
             columns=("code", "name", "dye_type", "percentage", "cost"),
@@ -305,14 +344,15 @@ class RecipeCreatorWindow:
         self.selected_tree.column("percentage", width=60, anchor="center")
         self.selected_tree.column("cost", width=70, anchor="center")
 
-        # Ø´Ø±ÙŠØ· Ø§Ù„ØªÙ…Ø±ÙŠØ±
+        # شريط التمرير
         scrollbar_selected = ttk.Scrollbar(selected_frame, orient="vertical", command=self.selected_tree.yview)
         self.selected_tree.configure(yscrollcommand=scrollbar_selected.set)
         scrollbar_selected.pack(side=tk.RIGHT, fill=tk.Y)
         self.selected_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._setup_treeview_sorting(self.selected_tree)
+        setup_tree_tags(self.selected_tree, self.dark_mode)
 
-        # Ø¥Ø·Ø§Ø± Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø³Ø±ÙŠØ¹Ø©
+        # إطار معلومات سريعة
         quick_info_frame = ttk.LabelFrame(self.window, text="Quick Info", padding=8)
         quick_info_frame.pack(fill=tk.X, padx=10, pady=3)
 
@@ -335,14 +375,14 @@ class RecipeCreatorWindow:
         self.type_label = ttk.Label(quick_row, text="None", font=('Arial', 9, 'bold'), foreground="purple")
         self.type_label.pack(side=tk.LEFT, padx=2)
 
-        # Ø¥Ø·Ø§Ø± Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª
+        # إطار الكيماويات
         chemicals_frame = ttk.LabelFrame(self.window, text="Required Chemicals", padding=8)
         chemicals_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=3)
 
         chemicals_scrollbar = ttk.Scrollbar(chemicals_frame, orient="vertical")
         self.chemicals_text = tk.Text(
             chemicals_frame,
-            height=8,
+            height=14,
             wrap=tk.WORD,
             font=('Arial', 10),
             yscrollcommand=chemicals_scrollbar.set
@@ -353,31 +393,8 @@ class RecipeCreatorWindow:
         self.chemicals_text.insert(tk.END, "No chemicals calculated yet. Add colors to the recipe.")
         self.chemicals_text.config(state='disabled')
 
-        # Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ…
-        button_frame = ttk.LabelFrame(self.window, text="Actions", padding=8)
-        button_frame.pack(fill=tk.X, padx=10, pady=5, side=tk.BOTTOM)
-
-        button_row = ttk.Frame(button_frame)
-        button_row.pack(fill=tk.X, pady=5)
-
-        ttk.Button(button_row, text="Save Recipe Only",
-                   command=self.save_recipe_only,
-                   width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(button_row, text="Save & Export PDF",
-                   command=self.save_and_export,
-                   width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(button_row, text="Show Chemicals",
-                   command=self.show_chemicals_details,
-                   width=20, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(button_row, text="Close Window",
-                   command=self.window.destroy,
-                   width=15, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
-
     def validate_recipe_code_input(self, value):
-        """Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµØ­Ø© Ø¥Ø¯Ø®Ø§Ù„ ÙƒÙˆØ¯ Ø§Ù„ÙˆØµÙØ©"""
+        """التحقق من صحة إدخال كود الوصفة"""
         if value == '':
             return True
         return value.isdigit() and len(value) <= 6
@@ -438,6 +455,9 @@ class RecipeCreatorWindow:
         self.lab_rapporto_var.set(rapporto_text)
 
     def _save_lab_settings_changes(self):
+        if not self.session.has_permission("can_edit_lab_settings"):
+            messagebox.showwarning("Permission Denied", "You do not have permission to edit lab settings.", parent=self.window)
+            return
         params = self._get_lab_params()
         saved = save_lab_settings(params["sample_g"], params["volume_ml"])
         self.lab_peso_var.set(f"{saved['sample_g']:.2f}")
@@ -456,43 +476,43 @@ class RecipeCreatorWindow:
             pass
 
     def load_available_colors(self):
-        """ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø£Ù„ÙˆØ§Ù† Ø§Ù„Ù…ØªØ§Ø­Ø©"""
+        """تحميل الألوان المتاحة"""
         try:
             colors = self.db.get_all_colors()
 
-            # ØªÙØ±ÙŠØº Ø§Ù„Ù‚ÙˆØ§Ø¦Ù…
+            # تفريغ القوائم
             self.indanthren_colors.clear()
             self.reattivi_colors.clear()
 
             for color in colors:
-                # Ø§Ø³ØªØ®Ø±Ø§Ø¬ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù„ÙˆÙ†
+                # استخراج بيانات اللون
                 color_data = self.extract_color_data(color)
                 if not color_data:
                     continue
 
                 dye_type_upper = color_data["dye_type"].upper()
 
-                # ØªÙˆØ²ÙŠØ¹ Ø­Ø³Ø¨ Ø§Ù„Ù†ÙˆØ¹
+                # توزيع حسب النوع
                 if "INDANTHREN" in dye_type_upper:
                     self.indanthren_colors.append(color_data)
                 else:
-                    # ÙƒÙ„ Ù…Ø§ Ø¹Ø¯Ø§ Indanthren => Reattivi
+                    # كل ما عدا Indanthren => Reattivi
                     self.reattivi_colors.append(color_data)
 
-            # Ø¹Ø±Ø¶ Ø§Ù„Ø£Ù„ÙˆØ§Ù† ÙÙŠ Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øªz
+            # عرض الألوان في التبويباتz
             self.display_colors(self.indanthren_tree, self.indanthren_colors)
             self.display_colors(self.reattivi_tree, self.reattivi_colors)
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load colors: {str(e)}", parent=self.window)
-            # Ø¨ÙŠØ§Ù†Ø§Øª ØªØ¬Ø±ÙŠØ¨ÙŠØ©
+            # بيانات تجريبية
             self.load_sample_data()
 
     def extract_color_data(self, color):
-        """Ø§Ø³ØªØ®Ø±Ø§Ø¬ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù„ÙˆÙ†"""
+        """استخراج بيانات اللون"""
         try:
             if hasattr(color, '__dict__'):
-                # ÙƒØ§Ø¦Ù†
+                # كائن
                 return {
                     "code": getattr(color, 'code', ''),
                     "name": getattr(color, 'name', ''),
@@ -503,7 +523,7 @@ class RecipeCreatorWindow:
                     "created_at": str(getattr(color, 'created_at', '') or '')
                 }
             elif isinstance(color, dict):
-                # Ù‚Ø§Ù…ÙˆØ³
+                # قاموس
                 return {
                     "code": color.get('code', ''),
                     "name": color.get('name', ''),
@@ -545,14 +565,14 @@ class RecipeCreatorWindow:
         return 100.0
 
     def display_colors(self, tree, colors):
-        """Ø¹Ø±Ø¶ Ø§Ù„Ø£Ù„ÙˆØ§Ù† ÙÙŠ Ø´Ø¬Ø±Ø© Ù…Ø­Ø¯Ø¯Ø©"""
+        """عرض الألوان في شجرة محددة"""
         for item in tree.get_children():
             tree.delete(item)
 
         for color in colors:
             created = str(color.get("created_at", "") or "")
             created_date = created.split()[0] if created else ""
-            tree.insert("", tk.END, values=(
+            zebra_insert(tree, (
                 color["code"],
                 color["name"],
                 color["dye_type"],
@@ -563,7 +583,7 @@ class RecipeCreatorWindow:
             ))
 
     def perform_search_ind(self):
-        """Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Indanthren"""
+        """بحث في تبويب Indanthren"""
         if not self.indanthren_colors:
             self.display_colors(self.indanthren_tree, [])
             return
@@ -586,7 +606,7 @@ class RecipeCreatorWindow:
         self.display_colors(self.indanthren_tree, filtered)
 
     def perform_search_rea(self):
-        """Ø¨Ø­Ø« ÙÙŠ ØªØ¨ÙˆÙŠØ¨ Reattivi"""
+        """بحث في تبويب Reattivi"""
         if not self.reattivi_colors:
             self.display_colors(self.reattivi_tree, [])
             return
@@ -609,21 +629,21 @@ class RecipeCreatorWindow:
         self.display_colors(self.reattivi_tree, filtered)
 
     def reset_search_ind(self):
-        """Ù…Ø³Ø­ Ø¨Ø­Ø« Indanthren"""
+        """مسح بحث Indanthren"""
         self.search_code_var_ind.set("")
         self.search_name_var_ind.set("")
         self.display_colors(self.indanthren_tree, self.indanthren_colors)
         self.search_code_entry_ind.focus()
 
     def reset_search_rea(self):
-        """Ù…Ø³Ø­ Ø¨Ø­Ø« Reattivi"""
+        """مسح بحث Reattivi"""
         self.search_code_var_rea.set("")
         self.search_name_var_rea.set("")
         self.display_colors(self.reattivi_tree, self.reattivi_colors)
         self.search_code_entry_rea.focus()
 
     def on_color_double_click(self, tab_name):
-        """Ø¹Ù†Ø¯ Ø§Ù„Ù†Ù‚Ø± Ø§Ù„Ù…Ø²Ø¯ÙˆØ¬ Ø¹Ù„Ù‰ Ù„ÙˆÙ†"""
+        """عند النقر المزدوج على لون"""
         if tab_name == "indanthren":
             tree = self.indanthren_tree
             colors_list = self.indanthren_colors
@@ -637,7 +657,7 @@ class RecipeCreatorWindow:
 
         color_data = tree.item(selected[0], "values")
 
-        # Ù†Ø§ÙØ°Ø© Ø§Ù„Ø¥Ø¯Ø®Ø§Ù„
+        # نافذة الإدخال
         input_win = tk.Toplevel(self.window)
         _show_on_top(input_win, self.window)
         input_win.title(f"Add {color_data[0]}")
@@ -660,9 +680,9 @@ class RecipeCreatorWindow:
                 if percentage <= 0:
                     raise ValueError
 
-                self.add_color_to_recipe(color_data, percentage)  # âœ… Ø³ØªØ³ØªØ¯Ø¹ÙŠ update_chemicals ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
+                self.add_color_to_recipe(color_data, percentage)  # ✅ ستستدعي update_chemicals تلقائياً
                 input_win.destroy()
-                # Ù„Ø§ Ø­Ø§Ø¬Ø© Ù„Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ update_chemicals Ù‡Ù†Ø§
+                # لا حاجة لاستدعاء update_chemicals هنا
 
             except ValueError:
                 messagebox.showwarning("Error", "Please enter a valid percentage greater than zero", parent=input_win)
@@ -676,7 +696,7 @@ class RecipeCreatorWindow:
         ttk.Button(button_frame, text="Cancel", command=input_win.destroy).pack(side=tk.LEFT, padx=5)
 
     def add_selected_color(self):
-        """Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù„ÙˆÙ† Ø§Ù„Ù…Ø­Ø¯Ø¯"""
+        """إضافة اللون المحدد"""
         active_tree = None
 
         if self.indanthren_tree.selection():
@@ -697,13 +717,13 @@ class RecipeCreatorWindow:
             return
 
         color_data = active_tree.item(active_tree.selection()[0], "values")
-        self.add_color_to_recipe(color_data, percentage)  # âœ… Ø³ØªØ³ØªØ¯Ø¹ÙŠ update_chemicals ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
+        self.add_color_to_recipe(color_data, percentage)  # ✅ ستستدعي update_chemicals تلقائياً
 
         self.percentage_entry.delete(0, tk.END)
 
     def add_color_to_recipe(self, color_data, percentage):
-        """Ø¥Ø¶Ø§ÙØ© Ù„ÙˆÙ† Ø¥Ù„Ù‰ Ø§Ù„ÙˆØµÙØ©"""
-        # Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„ØªÙˆØ§ÙÙ‚ Ø¨ÙŠÙ† Ø£Ù†ÙˆØ§Ø¹ Ø§Ù„ØµØ¨Ø§ØºØ©
+        """إضافة لون إلى الوصفة"""
+        # التحقق من التوافق بين أنواع الصباغة
         new_color_code = str(color_data[0]).strip()
 
         # Prevent adding the same color twice to one recipe.
@@ -718,12 +738,12 @@ class RecipeCreatorWindow:
 
         new_dye_type = color_data[2]
         
-        # ÙØ­Øµ Ø¥Ø°Ø§ ÙƒØ§Ù†Øª Ù‡Ù†Ø§Ùƒ Ø£Ù„ÙˆØ§Ù† Ù…Ø¶Ø§ÙØ© Ø¨Ø§Ù„ÙØ¹Ù„
+        # فحص إذا كانت هناك ألوان مضافة بالفعل
         if self.selected_colors:
-            # Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ Ù†ÙˆØ¹ Ø§Ù„ØµØ¨Ø§ØºØ© Ø§Ù„Ø£ÙˆÙ„ Ø§Ù„Ù…Ø¶Ø§Ù
+            # الحصول على نوع الصباغة الأول المضاف
             first_dye_type = self.selected_colors[0]["dye_type"]
             
-            # Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø¹Ø¯Ù… Ø®Ù„Ø· Indanthren Ù…Ø¹ Reattivi
+            # التحقق من عدم خلط Indanthren مع Reattivi
             is_new_indanthren = "INDANTHREN" in new_dye_type.upper()
             is_first_indanthren = "INDANTHREN" in first_dye_type.upper()
             
@@ -756,13 +776,13 @@ class RecipeCreatorWindow:
         self._refresh_recipe_calculations()
 
     def update_selected_tree(self):
-        """ØªØ­Ø¯ÙŠØ« Ø´Ø¬Ø±Ø© Ø§Ù„Ø£Ù„ÙˆØ§Ù† Ø§Ù„Ù…Ø¶Ø§ÙØ©"""
+        """تحديث شجرة الألوان المضافة"""
         for item in self.selected_tree.get_children():
             self.selected_tree.delete(item)
 
         for color in self.selected_colors:
             color_cost = (color["percentage"] / 100) * color.get("price_kg", 0)
-            self.selected_tree.insert("", tk.END, values=(
+            zebra_insert(self.selected_tree, (
                 color["code"],
                 color["name"],
                 color["dye_type"],
@@ -771,7 +791,7 @@ class RecipeCreatorWindow:
             ), tags=(color["code"],))
 
     def remove_selected_color(self):
-        """Ø¥Ø²Ø§Ù„Ø© Ø§Ù„Ù„ÙˆÙ† Ø§Ù„Ù…Ø­Ø¯Ø¯ Ù…Ù† Ø§Ù„ÙˆØµÙØ©"""
+        """إزالة اللون المحدد من الوصفة"""
         selected = self.selected_tree.selection()
         if not selected:
             return
@@ -790,7 +810,7 @@ class RecipeCreatorWindow:
         self._refresh_recipe_calculations()
 
     def clear_all_colors(self):
-        """Ù…Ø³Ø­ Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø£Ù„ÙˆØ§Ù†"""
+        """مسح جميع الألوان"""
         if not self.selected_colors:
             return
 
@@ -806,7 +826,7 @@ class RecipeCreatorWindow:
         self.update_chemicals()
 
     def update_quick_info(self):
-        """ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„Ø³Ø±ÙŠØ¹Ø©"""
+        """تحديث المعلومات السريعة"""
         colors_count = len(self.selected_colors)
         total_percentage = sum(color["percentage"] for color in self.selected_colors)
         total_cost = CostCalculator.calculate_recipe_cost(self.selected_colors)
@@ -826,7 +846,7 @@ class RecipeCreatorWindow:
             self.type_label.config(text="None")
 
     def update_chemicals(self):
-        """ØªØ­Ø¯ÙŠØ« Ø¹Ø±Ø¶ Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª ÙÙŠ frame required chemicals"""
+        """تحديث عرض الكيماويات في frame required chemicals"""
         if not self.selected_colors:
             self.chemicals_text.config(state='normal')
             self.chemicals_text.delete(1.0, tk.END)
@@ -836,7 +856,7 @@ class RecipeCreatorWindow:
 
         total_percentage = sum(color["percentage"] for color in self.selected_colors)
 
-        # ØªØ­Ø¯ÙŠØ¯ Ù†ÙˆØ¹ Ø§Ù„ØµØ¨Ø§ØºØ© Ø§Ù„Ù…Ù‡ÙŠÙ…Ù†
+        # تحديد نوع الصباغة المهيمن
         type_totals = {}
         for color in self.selected_colors:
             dye_type = color["dye_type"]
@@ -852,7 +872,7 @@ class RecipeCreatorWindow:
         dominant_type = max(type_totals, key=type_totals.get)
 
         try:
-            # Ø­Ø³Ø§Ø¨ Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª
+            # حساب الكيماويات
             chemicals = ChemicalCalculator.calculate_chemicals(total_percentage, dominant_type)
 
             self.chemicals_text.config(state='normal')
@@ -887,7 +907,7 @@ class RecipeCreatorWindow:
             self.chemicals_text.insert(tk.END, error_text)
             self.chemicals_text.config(state='disabled')
     def validate_inputs(self):
-        """Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµØ­Ø© Ø§Ù„Ù…Ø¯Ø®Ù„Ø§Øª"""
+        """التحقق من صحة المدخلات"""
         recipe_code = self.recipe_code_var.get().strip()
         if not recipe_code:
             messagebox.showwarning("Warning", "Please enter a recipe code", parent=self.window)
@@ -913,7 +933,7 @@ class RecipeCreatorWindow:
         return True
 
     def save_recipe_only(self):
-        """Ø­ÙØ¸ Ø§Ù„ÙˆØµÙØ© ÙÙ‚Ø·"""
+        """حفظ الوصفة فقط"""
         if not self.validate_inputs():
             return
 
@@ -928,7 +948,7 @@ class RecipeCreatorWindow:
                 created_at=get_current_timestamp()
             )
 
-            # Ø­Ø³Ø§Ø¨ Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª
+            # حساب الكيماويات
             total_percentage = sum(c.get('percentage', 0) for c in self.selected_colors)
             type_totals = {}
             for color in self.selected_colors:
@@ -951,7 +971,7 @@ class RecipeCreatorWindow:
             messagebox.showerror("Error", f"Failed to save recipe: {str(e)}", parent=self.window)
 
     def save_and_export(self):
-        """Ø­ÙØ¸ Ø§Ù„ÙˆØµÙØ© ÙˆØªØµØ¯ÙŠØ±Ù‡Ø§ Ø¥Ù„Ù‰ PDF"""
+        """حفظ الوصفة وتصديرها إلى PDF"""
         if not self.validate_inputs():
             return
 
@@ -969,7 +989,7 @@ class RecipeCreatorWindow:
             from app.calculator import ChemicalCalculator
             recipe_details = ChemicalCalculator.calculate_recipe_details(recipe_name, self.selected_colors)
             
-            # Ø­ÙØ¸ Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª Ù…Ø¹ Ø§Ù„ÙˆØµÙØ©
+            # حفظ الكيماويات مع الوصفة
             recipe_id = self.db.add_recipe(recipe, self.selected_colors, recipe_details.chemicals)
             recipe.id = recipe_id
             recipe_details.recipe = recipe
@@ -995,7 +1015,7 @@ class RecipeCreatorWindow:
             messagebox.showerror("Error", f"Failed to save recipe: {str(e)}", parent=self.window)
 
     def show_chemicals_details(self):
-        """Ø¹Ø±Ø¶ ØªÙØ§ØµÙŠÙ„ Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª ÙÙŠ Ù†Ø§ÙØ°Ø© Ù…Ù†ÙØµÙ„Ø©"""
+        """عرض تفاصيل الكيماويات في نافذة منفصلة"""
         if not self.selected_colors:
             messagebox.showwarning("Warning", "No colors added to calculate chemicals", parent=self.window)
             return
@@ -1014,7 +1034,7 @@ class RecipeCreatorWindow:
         _show_on_top(chem_win, self.window)
         chem_win.title("Chemical Requirements Details")
         chem_win.geometry("500x400")
-        chem_win.configure(bg="#f0f0f0")
+        chem_win.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
         chem_win.grab_set()
 
         ttk.Label(chem_win, text="Detailed Chemical Requirements",
@@ -1057,8 +1077,8 @@ class RecipeCreatorWindow:
         ttk.Button(chem_win, text="Close", command=chem_win.destroy).pack(pady=10)
 
     def load_sample_data(self):
-        """ØªØ­Ù…ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª ØªØ¬Ø±ÙŠØ¨ÙŠØ©"""
-        # Ø£Ù„ÙˆØ§Ù† Indanthren
+        """تحميل بيانات تجريبية"""
+        # ألوان Indanthren
         indanthren_samples = [
             {"code": "IN-001", "name": "Indanthren Blue", "dye_type": "INDANTHREN", "price_kg": 45.50},
             {"code": "IN-002", "name": "Indanthren Red", "dye_type": "INDANTHREN", "price_kg": 52.30},
@@ -1067,7 +1087,7 @@ class RecipeCreatorWindow:
             {"code": "IN-005", "name": "Indanthren Black", "dye_type": "INDANTHREN", "price_kg": 40.90},
         ]
 
-        # Ø£Ù„ÙˆØ§Ù† Reattivi
+        # ألوان Reattivi
         reattivi_samples = [
             {"code": "RC-101", "name": "Reattivi Caldi Red", "dye_type": "REATTIVI CALDI", "price_kg": 38.50},
             {"code": "RC-102", "name": "Reattivi Caldi Blue", "dye_type": "REATTIVI CALDI", "price_kg": 42.30},
@@ -1082,4 +1102,3 @@ class RecipeCreatorWindow:
 
         self.display_colors(self.indanthren_tree, indanthren_samples)
         self.display_colors(self.reattivi_tree, reattivi_samples)
-

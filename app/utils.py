@@ -1,5 +1,5 @@
 ﻿"""
-Ø¯ÙˆØ§Ù„ Ù…Ø³Ø§Ø¹Ø¯Ø©
+دوال مساعدة
 """
 import math
 from typing import Any
@@ -17,18 +17,18 @@ def _is_missing(value: Any) -> bool:
 
 def clean_color_code(code: Any) -> str:
     """
-    ØªÙ†Ø¸ÙŠÙ ÙƒÙˆØ¯ Ø§Ù„Ù„ÙˆÙ†
+    تنظيف كود اللون
     """
     if _is_missing(code):
         return ""
 
     code_str = str(code).strip()
 
-    # Ø¥Ø²Ø§Ù„Ø© .0 Ù…Ù† Ø§Ù„Ù†Ù‡Ø§ÙŠØ©
+    # إزالة .0 من النهاية
     if '.' in code_str:
         parts = code_str.split('.')
         if len(parts) == 2:
-            # Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ø¬Ø²Ø¡ Ø§Ù„Ø¹Ø´Ø±ÙŠ Ø£ØµÙØ§Ø± ÙÙ‚Ø·
+            # إذا كان الجزء العشري أصفار فقط
             if parts[1].replace('0', '') == '':
                 code_str = parts[0]
 
@@ -38,7 +38,7 @@ def clean_color_code(code: Any) -> str:
 
 
 def clean_recipe_code(code: Any) -> str:
-    """ØªÙ†Ø¸ÙŠÙ ÙƒÙˆØ¯ Ø§Ù„Ø±ÙŠØªØ´ØªØ©"""
+    """تنظيف كود الريتشتة"""
     import re
     if _is_missing(code):
         return ""
@@ -85,7 +85,7 @@ def parse_number_input(value: Any, default: float = 0.0) -> float:
         value_str
         .replace("EUR", "")
         .replace("€", "")
-        .replace("â‚¬", "")
+        .replace("€", "")
         .strip()
     )
 
@@ -114,13 +114,13 @@ def parse_number_input(value: Any, default: float = 0.0) -> float:
 
 
 def validate_color_code_input(code: str) -> tuple[bool, str]:
-    """Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµØ­Ø© ÙƒÙˆØ¯ Ø§Ù„Ù„ÙˆÙ† - Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ù…Ø¯Ù‚Ù‚ Ø§Ù„Ù…Ø±ÙƒØ²ÙŠ"""
+    """التحقق من صحة كود اللون - استدعاء المدقق المركزي"""
     from app.validators import Validators
     return Validators.validate_color_code(code)
 
 
 def validate_recipe_code_input(code: str) -> tuple[bool, str]:
-    """Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØµØ­Ø© ÙƒÙˆØ¯ Ø§Ù„ÙˆØµÙØ© - Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ù…Ø¯Ù‚Ù‚ Ø§Ù„Ù…Ø±ÙƒØ²ÙŠ"""
+    """التحقق من صحة كود الوصفة - استدعاء المدقق المركزي"""
     from app.validators import Validators
     return Validators.validate_recipe_code(code)
 
@@ -137,7 +137,7 @@ def _format_number_no_trailing_zeros(value: float, decimals: int = 2) -> str:
 
 
 def format_currency(amount: float) -> str:
-    """ØªÙ†Ø³ÙŠÙ‚ Ø§Ù„Ø¹Ù…Ù„Ø©"""
+    """تنسيق العملة"""
     try:
         return f"€{float(amount):.2f}"
     except (TypeError, ValueError):
@@ -145,36 +145,36 @@ def format_currency(amount: float) -> str:
 
 
 def format_percentage(value: float) -> str:
-    """ØªÙ†Ø³ÙŠÙ‚ Ø§Ù„Ù†Ø³Ø¨Ø© Ø§Ù„Ù…Ø¦ÙˆÙŠØ©"""
+    """تنسيق النسبة المئوية"""
     return f"{_format_number_no_trailing_zeros(value)}%"
 
 
 def get_current_timestamp() -> str:
-    """Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ Ø§Ù„Ø·Ø§Ø¨Ø¹ Ø§Ù„Ø²Ù…Ù†ÙŠ Ø§Ù„Ø­Ø§Ù„ÙŠ"""
+    """الحصول على الطابع الزمني الحالي"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def calculate_age_from_timestamp(timestamp: str) -> str:
-    """Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¹Ù…Ø± Ù…Ù† Ø§Ù„Ø·Ø§Ø¨Ø¹ Ø§Ù„Ø²Ù…Ù†ÙŠ"""
+
+
+def normalize_dye_type_label(dye_type: Any) -> str:
+    """
+    Normalize dye-type text and map it to a canonical configured label when possible.
+    Falls back to trimmed original text if no canonical match is found.
+    """
+    raw = str(dye_type or "").strip()
+    normalized = " ".join(raw.lower().split())
+    if not normalized:
+        return ""
+
+    aliases = {
+        "reattivi oltre": "reattivi oltri",
+        "reattivi altri": "reattivi oltri",
+    }
+    normalized = aliases.get(normalized, normalized)
+
     try:
-        created_date = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-        delta = datetime.now() - created_date
-
-        if delta.days > 365:
-            years = delta.days // 365
-            return f"{years} year{'s' if years > 1 else ''}"
-        elif delta.days > 30:
-            months = delta.days // 30
-            return f"{months} month{'s' if months > 1 else ''}"
-        elif delta.days > 0:
-            return f"{delta.days} day{'s' if delta.days > 1 else ''}"
-        else:
-            hours = delta.seconds // 3600
-            if hours > 0:
-                return f"{hours} hour{'s' if hours > 1 else ''}"
-            else:
-                minutes = delta.seconds // 60
-                return f"{minutes} minute{'s' if minutes > 1 else ''}"
-    except:
-        return "Unknown"
-
+        from app.config import DYE_TYPES
+        canonical_map = {" ".join(item.strip().lower().split()): item for item in DYE_TYPES}
+        return canonical_map.get(normalized, raw)
+    except Exception:
+        return raw

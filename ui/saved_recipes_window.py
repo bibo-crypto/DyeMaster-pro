@@ -1,5 +1,5 @@
-"""
-Ù†Ø§ÙØ°Ø© Ø¹Ø±Ø¶ Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©
+﻿"""
+نافذة عرض الريتشتات المحفوظة
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -7,6 +7,12 @@ from typing import Optional
 
 from app.database import DatabaseManager
 from app.pdf_exporter import PDFExporter
+from app.session import SessionManager
+from ui.theme_tokens import (
+    setup_tree_tags, zebra_insert,
+    get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style,
+    BOLD_FONT,
+)
 
 
 def _show_on_top(window, parent):
@@ -22,61 +28,60 @@ def _show_on_top(window, parent):
 
 
 class SavedRecipesWindow:
-    """Ù†Ø§ÙØ°Ø© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©"""
+    """نافذة الريتشتات المحفوظة"""
 
-    def __init__(self, parent, db: DatabaseManager, recipe_id: Optional[int] = None, on_data_changed=None):
+    def __init__(self, parent, db: DatabaseManager, recipe_id: Optional[int] = None, on_data_changed=None, dark_mode: bool = False):
         self.parent = parent
         self.db = db
+        self.session = SessionManager.get_session()
         self.selected_recipe_id = recipe_id
         self.on_data_changed = on_data_changed
+        self.dark_mode = dark_mode
         self.data_changed = False
-        self.all_recipes_data = []  # ØªØ®Ø²ÙŠÙ† Ø¬Ù…ÙŠØ¹ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª Ù„Ù„Ø¨Ø­Ø«
+        self.all_recipes_data = []  # تخزين جميع بيانات الريتشتات للبحث
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
         self.window.title("Saved Recipes - Ricette")
         self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
         
-        # Ø¶Ø¨Ø· Ø£Ø¨Ø¹Ø§Ø¯ Ø§Ù„Ù†Ø§ÙØ°Ø© Ù„ØªÙƒÙˆÙ† Ù…ØªØ¬Ø§ÙˆØ¨Ø©
+        # ضبط أبعاد النافذة لتكون متجاوبة
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.82)
+        height = int(screen_height * 0.86)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
         self.window.geometry(f"{width}x{height}+{x}+{y}")
-        self.window.configure(bg="#f0f0f0")
+        palette = get_theme_tokens(self.dark_mode)
+        self.window.configure(bg=palette["bg"])
         
-        # Ø§Ù„Ø³Ù…Ø§Ø­ Ø¨Ø§Ù„ØªÙƒØ¨ÙŠØ± ÙˆØ§Ù„ØªØµØºÙŠØ± ÙˆØ¥Ø¸Ù‡Ø§Ø± Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ…
+        # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.minsize(980, 620)
+        self.window.minsize(980, 700)
 
-        # Keep this as a normal top-level window (with full title-bar controls).
 
-        # Ù…Ù†Ø¹ ØªØºÙŠÙŠØ± Ø§Ù„Ø­Ø¬Ù…
-        self.window.resizable(True, True)
-
-        # Ù…ØªØºÙŠØ±Ø§Øª Ø§Ù„Ø¨Ø­Ø«
+        # متغيرات البحث
         self.search_code_var = tk.StringVar()
         self.search_name_var = tk.StringVar()
 
-        # Ù…ØªØºÙŠØ±Ø§Øª Ø§Ù„ØªØ±ØªÙŠØ¨
+        # متغيرات الترتيب
         self.sort_column = "id"
         self.sort_reverse = False
-        self.current_displayed_data = []  # ØªØ®Ø²ÙŠÙ† Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø¹Ø±ÙˆØ¶Ø© Ø­Ø§Ù„ÙŠØ§Ù‹ Ù„Ù„ØªØ±ØªÙŠØ¨
+        self.current_displayed_data = []  # تخزين البيانات المعروضة حالياً للترتيب
 
 
-        # ØªÙ‡ÙŠØ¦Ø© Ø§Ù„Ø£Ù†Ù…Ø§Ø·
+        # تهيئة الأنماط
         self.configure_styles()
 
-        # Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©
+        # إنشاء الواجهة
         self.setup_ui()
 
-        # ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+        # تحميل البيانات
         self.load_recipes()
 
-        # Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ recipe_id Ù…Ø­Ø¯Ø¯ØŒ Ø¹Ø±Ø¶ ØªÙØ§ØµÙŠÙ„Ù‡
+        # إذا كان هناك recipe_id محدد، عرض تفاصيله
         if self.selected_recipe_id:
             self.select_recipe_by_id(self.selected_recipe_id)
 
@@ -92,97 +97,102 @@ class SavedRecipesWindow:
         self.window.destroy()
 
     def configure_styles(self):
-        """ØªÙƒÙˆÙŠÙ† Ø£Ù†Ù…Ø§Ø· Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©"""
+        """تكوين أنماط الواجهة"""
         style = ttk.Style(self.window)
-        style.configure('Sub.TButton',
-                        font=('Arial', 10, 'bold'),
-                        padding=6,
-                        background='#3498DB',
-                        foreground='white')
-        style.map('Sub.TButton',
-                  background=[('active', '#2980B9')])
+        palette = get_theme_tokens(self.dark_mode)
+        apply_excel_treeview_style(style, palette, self.dark_mode)
+        configure_sub_button_style(style, 'Sub.TButton', palette)
+        style.configure('InfoLabel.TLabel',
+                        font=BOLD_FONT,
+                        foreground='#1f4e79' if not self.dark_mode else '#7ab8f5')
+        style.configure('InfoValue.TLabel',
+                        font=BOLD_FONT,
+                        foreground='#c62828' if not self.dark_mode else '#ff6b6b')
 
     def setup_ui(self):
-        """Ø¥Ø¹Ø¯Ø§Ø¯ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…"""
-        # Ø¥Ø·Ø§Ø± Ø§Ù„Ø¨Ø­Ø«
+        """إعداد واجهة المستخدم"""
+        # إطار البحث
         search_frame = ttk.LabelFrame(self.window, text="Recipe Filters", padding=8)
         search_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        # Ø¨Ø­Ø« Ø¨Ø§Ù„ÙƒÙˆØ¯
+        # بحث بالكود
         ttk.Label(search_frame, text="Code:").grid(row=0, column=0, padx=5, pady=3, sticky="e")
         self.search_code_entry = ttk.Entry(search_frame, textvariable=self.search_code_var, width=15)
         self.search_code_entry.grid(row=0, column=1, padx=5, pady=3, sticky="w")
         self.search_code_entry.bind('<KeyRelease>', lambda e: self.perform_search())
 
-        # Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù…
+        # بحث بالاسم
         ttk.Label(search_frame, text="Name:").grid(row=0, column=2, padx=5, pady=3, sticky="e")
         self.search_name_entry = ttk.Entry(search_frame, textvariable=self.search_name_var, width=25)
         self.search_name_entry.grid(row=0, column=3, padx=5, pady=3, sticky="w")
         self.search_name_entry.bind('<KeyRelease>', lambda e: self.perform_search())
 
-        # Ø£Ø²Ø±Ø§Ø± Ø§Ù„Ø¨Ø­Ø«
+        # أزرار البحث
         ttk.Button(search_frame, text="Clear",
                    command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=4, padx=5, pady=3)
 
-        # Ø§Ù„Ø¥Ø·Ø§Ø± Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ
+        # الإطار الرئيسي
         self.main_frame = ttk.Frame(self.window)
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        # Ø¥Ø·Ø§Ø± Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª (Ø§Ù„Ø´Ù…Ø§Ù„) - Ø£ØµØºØ±
+        # إطار قائمة الريتشتات (الشمال) - أصغر
         list_frame = ttk.LabelFrame(self.main_frame, text="Saved Recipes List", padding=10)
         list_frame.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 5))
 
-        # Ø´Ø¬Ø±Ø© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª - Ø§Ø±ØªÙØ§Ø¹ Ø£Ù‚Ù„
+        # شجرة الريتشتات - ارتفاع أقل
         self.recipe_tree = ttk.Treeview(
             list_frame,
             columns=("id", "recipe_code", "name", "created_at"),
             show="headings",
-            height=15  # ØªÙ‚Ù„ÙŠÙ„ Ø§Ù„Ø§Ø±ØªÙØ§Ø¹
+            height=12  # keeps footer buttons visible on small screens
         )
+        # Hide internal ID column from UI while keeping it in item values.
+        self.recipe_tree["displaycolumns"] = ("recipe_code", "name", "created_at")
 
-        # Ø¹Ù†Ø§ÙˆÙŠÙ† Ø§Ù„Ø£Ø¹Ù…Ø¯Ø©
+        # عناوين الأعمدة
         self.recipe_tree.heading("id", text="ID", command=lambda: self.sort_treeview("id"))
         self.recipe_tree.heading("recipe_code", text="Recipe Code", command=lambda: self.sort_treeview("recipe_code"))
         self.recipe_tree.heading("name", text="Recipe Name", command=lambda: self.sort_treeview("name"))
         self.recipe_tree.heading("created_at", text="Created Date", command=lambda: self.sort_treeview("created_at"))
 
-        # Ø£Ø¨Ø¹Ø§Ø¯ Ø§Ù„Ø£Ø¹Ù…Ø¯Ø© - Ø£ØµØºØ±
+        # أبعاد الأعمدة - أصغر
         self.recipe_tree.column("id", width=50, anchor="center")
         self.recipe_tree.column("recipe_code", width=100, anchor="center")
         self.recipe_tree.column("name", width=180, anchor="center")
         self.recipe_tree.column("created_at", width=100, anchor="center")
 
-        # Ø´Ø±ÙŠØ· Ø§Ù„ØªÙ…Ø±ÙŠØ±
+        # شريط التمرير
         scrollbar_tree = ttk.Scrollbar(list_frame, orient="vertical", command=self.recipe_tree.yview)
         self.recipe_tree.configure(yscrollcommand=scrollbar_tree.set)
         scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
         self.recipe_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Ø±Ø¨Ø· Ø£Ø­Ø¯Ø§Ø«
+        # ربط أحداث
         self.recipe_tree.bind("<<TreeviewSelect>>", self.on_recipe_select)
+        setup_tree_tags(self.recipe_tree, self.dark_mode)
 
-        # Ø¥Ø·Ø§Ø± ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø±ÙŠØªØ´Øª (Ø§Ù„ÙŠÙ…ÙŠÙ†)
+        # إطار تفاصيل الريتشت (اليمين)
         details_frame = ttk.LabelFrame(self.main_frame, text="Recipe Full Details", padding=10)
         details_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        # Ø¥Ø·Ø§Ø± Ø§Ù„ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© Ù…Ø¨Ø§Ø´Ø±Ø© (Ø¨Ø¯ÙˆÙ† ØªØ¨ÙˆÙŠØ¨Ø§Øª)
+        # إطار التفاصيل الرئيسية مباشرة (بدون تبويبات)
         self.main_details_frame = ttk.Frame(details_frame)
         self.main_details_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Ø¥Ø¹Ø¯Ø§Ø¯ Ù…Ø­ØªÙˆÙ‰ Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª
+        # إعداد محتوى التبويبات
         self.setup_main_details_tab()
 
-        # Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ… ÙÙŠ Ø§Ù„Ø£Ø³ÙÙ„
+        # أزرار التحكم في الأسفل
         self.setup_control_buttons()
 
     def setup_main_details_tab(self):
-        """Ø¥Ø¹Ø¯Ø§Ø¯ ØªØ¨ÙˆÙŠØ¨ Ø§Ù„ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© (Recipe Info + Colors & Chemicals)"""
-        # Ø¥Ø·Ø§Ø± Ø±Ø¦ÙŠØ³ÙŠ Ù…Ø¹ ØªÙ…Ø±ÙŠØ± Ø¹Ù…ÙˆØ¯ÙŠ ÙÙ‚Ø·
+        """إعداد تبويب التفاصيل الرئيسية (Recipe Info + Colors & Chemicals)"""
+        # إطار رئيسي مع تمرير عمودي فقط
         main_container = ttk.Frame(self.main_details_frame)
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # Canvas Ù…Ø¹ Ø´Ø±ÙŠØ· ØªÙ…Ø±ÙŠØ± Ø¹Ù…ÙˆØ¯ÙŠ ÙÙ‚Ø·
-        self.details_canvas = tk.Canvas(main_container, bg="#f0f0f0")  # Ù„ÙˆÙ† Ø§Ù„Ø®Ù„ÙÙŠØ© Ù…ØªÙ†Ø§Ø³Ù‚
+        # Canvas مع شريط تمرير عمودي فقط
+        self.details_canvas = tk.Canvas(main_container, bg=get_theme_tokens(self.dark_mode)["bg"])
         scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=self.details_canvas.yview)
         self.scrollable_frame = ttk.Frame(self.details_canvas)
 
@@ -191,10 +201,10 @@ class SavedRecipesWindow:
             lambda e: self.details_canvas.configure(scrollregion=self.details_canvas.bbox("all"))
         )
 
-        # Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù†Ø§ÙØ°Ø© Ø¯Ø§Ø®Ù„ Ø§Ù„ÙƒØ§Ù†ÙØ§Ø³ ÙˆØ­ÙØ¸ Ø§Ù„Ù…Ø¹Ø±Ù Ù„Ù„ØªØ­ÙƒÙ… ÙÙŠ Ø§Ù„Ø¹Ø±Ø¶
+        # إنشاء النافذة داخل الكانفاس وحفظ المعرف للتحكم في العرض
         window_id = self.details_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         
-        # Ø¬Ø¹Ù„ Ø§Ù„Ø¥Ø·Ø§Ø± Ø§Ù„Ø¯Ø§Ø®Ù„ÙŠ ÙŠÙ…Ù„Ø£ Ø¹Ø±Ø¶ Ø§Ù„ÙƒØ§Ù†ÙØ§Ø³ (Ù„Ø¥Ø²Ø§Ù„Ø© Ø§Ù„Ù…Ø³Ø§Ø­Ø© Ø§Ù„Ø¨ÙŠØ¶Ø§Ø¡ ÙŠÙ…ÙŠÙ†Ø§Ù‹)
+        # جعل الإطار الداخلي يملأ عرض الكانفاس (لإزالة المساحة البيضاء يميناً)
         self.details_canvas.bind("<Configure>", lambda e: self.details_canvas.itemconfig(window_id, width=e.width))
         
         self.details_canvas.configure(yscrollcommand=scrollbar.set)
@@ -206,58 +216,69 @@ class SavedRecipesWindow:
         recipe_info_frame = ttk.LabelFrame(self.scrollable_frame, text="RECIPE INFORMATION", padding=10)
         recipe_info_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Ø´Ø¨ÙƒØ© Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„ÙˆØµÙØ© - Ø£ÙƒØ«Ø± Ø¥Ø­ÙƒØ§Ù…Ø§
+        # شبكة معلومات الوصفة - أكثر إحكاما
         info_grid = ttk.Frame(recipe_info_frame)
         info_grid.pack(fill=tk.X, padx=5, pady=5)
 
-        # Ø§Ù„ØµÙ Ø§Ù„Ø£ÙˆÙ„
-        ttk.Label(info_grid, text="Recipe Code:",
-                  font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky=tk.W, pady=2, padx=2)
-        self.recipe_code_value = ttk.Label(info_grid, text="", font=('Arial', 9))
+        # الصف الأول
+        ttk.Label(info_grid, text="Recipe Code:", style='InfoLabel.TLabel').grid(
+            row=0, column=0, sticky=tk.W, pady=2, padx=2
+        )
+        self.recipe_code_value = ttk.Label(info_grid, text="", style='InfoValue.TLabel')
         self.recipe_code_value.grid(row=0, column=1, sticky=tk.W, pady=2, padx=10)
 
-        ttk.Label(info_grid, text="Recipe Name:",
-                  font=('Arial', 9, 'bold')).grid(row=0, column=2, sticky=tk.W, pady=2, padx=2)
-        self.recipe_name_value = ttk.Label(info_grid, text="", font=('Arial', 9))
+        ttk.Label(info_grid, text="Recipe Name:", style='InfoLabel.TLabel').grid(
+            row=0, column=2, sticky=tk.W, pady=2, padx=2
+        )
+        self.recipe_name_value = ttk.Label(info_grid, text="", style='InfoValue.TLabel')
         self.recipe_name_value.grid(row=0, column=3, sticky=tk.W, pady=2, padx=10)
 
-        # Ø§Ù„ØµÙ Ø§Ù„Ø«Ø§Ù†ÙŠ
-        ttk.Label(info_grid, text="Created Date:",
-                  font=('Arial', 9, 'bold')).grid(row=1, column=0, sticky=tk.W, pady=2, padx=2)
-        self.created_date_value = ttk.Label(info_grid, text="", font=('Arial', 9))
+        # الصف الثاني
+        ttk.Label(info_grid, text="Created Date:", style='InfoLabel.TLabel').grid(
+            row=1, column=0, sticky=tk.W, pady=2, padx=2
+        )
+        self.created_date_value = ttk.Label(info_grid, text="", style='InfoValue.TLabel')
         self.created_date_value.grid(row=1, column=1, sticky=tk.W, pady=2, padx=10)
 
-        ttk.Label(info_grid, text="Dominant Type:",
-                  font=('Arial', 9, 'bold')).grid(row=1, column=2, sticky=tk.W, pady=2, padx=2)
-        self.dominant_type_value = ttk.Label(info_grid, text="", font=('Arial', 9))
+        ttk.Label(info_grid, text="Dominant Type:", style='InfoLabel.TLabel').grid(
+            row=1, column=2, sticky=tk.W, pady=2, padx=2
+        )
+        self.dominant_type_value = ttk.Label(info_grid, text="", style='InfoValue.TLabel')
         self.dominant_type_value.grid(row=1, column=3, sticky=tk.W, pady=2, padx=10)
 
-        # Ø§Ù„ØµÙ Ø§Ù„Ø«Ø§Ù„Ø«
-        ttk.Label(info_grid, text="Total %:",
-                  font=('Arial', 9, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=2, padx=2)
-        self.total_percentage_value = ttk.Label(info_grid, text="", font=('Arial', 9))
+        # الصف الثالث
+        ttk.Label(info_grid, text="Total %:", style='InfoLabel.TLabel').grid(
+            row=2, column=0, sticky=tk.W, pady=2, padx=2
+        )
+        self.total_percentage_value = ttk.Label(info_grid, text="", style='InfoValue.TLabel')
         self.total_percentage_value.grid(row=2, column=1, sticky=tk.W, pady=2, padx=10)
+
+        ttk.Label(info_grid, text="Total Recipe Price:", style='InfoLabel.TLabel').grid(
+            row=2, column=2, sticky=tk.W, pady=2, padx=2
+        )
+        self.total_cost_value = ttk.Label(info_grid, text="", style='InfoValue.TLabel')
+        self.total_cost_value.grid(row=2, column=3, sticky=tk.W, pady=2, padx=10)
 
 
         # ========== SECTION 2: COLORS DETAILS ==========
         colors_frame = ttk.LabelFrame(self.scrollable_frame, text="COLORS DETAILS", padding=10)
-        colors_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5) # ØªÙ…Ø¯Ø¯ Ù„Ù…Ù„Ø¡ Ø§Ù„ÙØ±Ø§Øº
+        colors_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5) # تمدد لملء الفراغ
 
-        # Ø´Ø¬Ø±Ø© Ø§Ù„Ø£Ù„ÙˆØ§Ù† - Ø§Ø±ØªÙØ§Ø¹ Ø£Ù‚Ù„
+        # شجرة الألوان - ارتفاع أقل
         self.colors_tree = ttk.Treeview(
             colors_frame,
             columns=("code", "name", "dye_type", "percentage", "price_kg"),
             show="headings",
-            height=6  # Ø§Ø±ØªÙØ§Ø¹ Ø£Ù‚Ù„
+            height=4  # Match chemicals tree height
         )
 
         self.colors_tree.heading("code", text="Color Code")
         self.colors_tree.heading("name", text="Color Name")
         self.colors_tree.heading("dye_type", text="Dye Type")
         self.colors_tree.heading("percentage", text="%")
-        self.colors_tree.heading("price_kg", text="Price €/kg")
+        self.colors_tree.heading("price_kg", text="Price EUR/kg")
 
-        # Ø£Ø¨Ø¹Ø§Ø¯ Ø§Ù„Ø£Ø¹Ù…Ø¯Ø© - Ø£ØµØºØ± Ø¨ÙƒØ«ÙŠØ±
+        # أبعاد الأعمدة - أصغر بكثير
         self.colors_tree.column("code", width=80, anchor="center", minwidth=70)
         self.colors_tree.column("name", width=120, anchor="center", minwidth=100)
         self.colors_tree.column("dye_type", width=90, anchor="center", minwidth=80)
@@ -268,33 +289,18 @@ class SavedRecipesWindow:
         self.colors_tree.configure(yscrollcommand=scrollbar_colors.set)
         scrollbar_colors.pack(side=tk.RIGHT, fill=tk.Y)
         self.colors_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Ù…Ù„Ø®Øµ Ø§Ù„Ø£Ù„ÙˆØ§Ù† - Ø£ÙƒØ«Ø± Ø¥Ø­ÙƒØ§Ù…Ø§
-        colors_summary_frame = ttk.Frame(colors_frame)
-        colors_summary_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(colors_summary_frame, text="Colors:",
-                  font=('Arial', 9)).pack(side=tk.LEFT, padx=10)
-        self.colors_count_label = ttk.Label(colors_summary_frame, text="0",
-                                            font=('Arial', 9, 'bold'))
-        self.colors_count_label.pack(side=tk.LEFT, padx=2)
-
-        ttk.Label(colors_summary_frame, text="Total %:",
-                  font=('Arial', 9)).pack(side=tk.LEFT, padx=10)
-        self.colors_percentage_label = ttk.Label(colors_summary_frame, text="0.00%",
-                                                 font=('Arial', 9, 'bold'))
-        self.colors_percentage_label.pack(side=tk.LEFT, padx=2)
+        setup_tree_tags(self.colors_tree, self.dark_mode)
 
         # ========== SECTION 3: CHEMICALS REQUIRED ==========
         chemicals_frame = ttk.LabelFrame(self.scrollable_frame, text="CHEMICALS REQUIRED", padding=10)
-        chemicals_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5) # ØªÙ…Ø¯Ø¯ Ù„Ù…Ù„Ø¡ Ø§Ù„ÙØ±Ø§Øº
+        chemicals_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5) # تمدد لملء الفراغ
 
-        # Ø´Ø¬Ø±Ø© Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª - Ø§Ø±ØªÙØ§Ø¹ Ø£Ù‚Ù„ ÙˆØ¹Ø±Ø¶ Ù…Ø¶Ø¨ÙˆØ·
+        # شجرة الكيماويات - ارتفاع أقل وعرض مضبوط
         self.chemicals_tree = ttk.Treeview(
             chemicals_frame,
             columns=("code", "name", "quantity", "unit"),
             show="headings",
-            height=4  # Ø§Ø±ØªÙØ§Ø¹ Ø£Ù‚Ù„
+            height=4  # ارتفاع أقل
         )
 
         self.chemicals_tree.heading("code", text="Code")
@@ -302,57 +308,77 @@ class SavedRecipesWindow:
         self.chemicals_tree.heading("quantity", text="Quantity")
         self.chemicals_tree.heading("unit", text="Unit")
 
-        # Ø£Ø¨Ø¹Ø§Ø¯ Ø§Ù„Ø£Ø¹Ù…Ø¯Ø© Ù…Ø¶Ø¨ÙˆØ·Ø© ØªÙ…Ø§Ù…Ø§Ù‹ Ù„Ø±Ø¤ÙŠØ© g/l
+        # أبعاد الأعمدة مضبوطة تماماً لرؤية g/l
         self.chemicals_tree.column("code", width=80, anchor="center", minwidth=60)
         self.chemicals_tree.column("name", width=200, anchor="center", minwidth=180)
         self.chemicals_tree.column("quantity", width=100, anchor="center", minwidth=80)
-        self.chemicals_tree.column("unit", width=60, anchor="center", minwidth=50)  # Ø¹Ø±Ø¶ ÙƒØ§ÙÙŠ Ù„Ù€ g/l
+        self.chemicals_tree.column("unit", width=60, anchor="center", minwidth=50)  # عرض كافي لـ g/l
 
         scrollbar_chem = ttk.Scrollbar(chemicals_frame, orient="vertical", command=self.chemicals_tree.yview)
         self.chemicals_tree.configure(yscrollcommand=scrollbar_chem.set)
         scrollbar_chem.pack(side=tk.RIGHT, fill=tk.Y)
         self.chemicals_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        setup_tree_tags(self.chemicals_tree, self.dark_mode)
 
     def setup_control_buttons(self):
-        """Ø¥Ø¹Ø¯Ø§Ø¯ Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ… ÙÙŠ Ø§Ù„Ø£Ø³ÙÙ„"""
-        # Ø¥Ø·Ø§Ø± Ù„Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ… ÙÙŠ Ø£Ø³ÙÙ„ Ø§Ù„Ù†Ø§ÙØ°Ø©
+        """إعداد أزرار التحكم في الأسفل"""
+        # إطار لأزرار التحكم في أسفل النافذة
         control_frame = ttk.Frame(self.window)
-        control_frame.pack(fill=tk.X, padx=10, pady=5, side=tk.BOTTOM)
+        control_frame.pack(fill=tk.X, padx=10, pady=3, side=tk.BOTTOM)
 
-        # Ø¬Ø¹Ù„ Ø§Ù„Ø£Ø²Ø±Ø§Ø± ÙÙŠ ØµÙ ÙˆØ§Ø­Ø¯
+        # جعل الأزرار في صف واحد
         button_frame = ttk.Frame(control_frame)
-        button_frame.pack(fill=tk.X, pady=5)
+        button_frame.pack(fill=tk.X, pady=2)
 
         ttk.Button(button_frame, text="Export to PDF",
                    command=self.export_selected_recipe, width=15, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
+        self.edit_recipe_button = ttk.Button(
+            button_frame,
+            text="Edit Recipe",
+            command=self.edit_recipe,
+            width=15,
+            style='Sub.TButton'
+        )
+        self.edit_recipe_button.pack(side=tk.LEFT, padx=5)
+        if not self.session.has_permission("can_edit"):
+            self.edit_recipe_button.state(["disabled"])
 
 
-        ttk.Button(button_frame, text="Delete Recipe",
-                   command=self.delete_recipe, width=15, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
+
+        self.delete_recipe_button = ttk.Button(
+            button_frame,
+            text="Delete Recipe",
+            command=self.delete_recipe,
+            width=15,
+            style='Sub.TButton'
+        )
+        self.delete_recipe_button.pack(side=tk.LEFT, padx=5)
+        if not self.session.has_permission("can_delete"):
+            self.delete_recipe_button.state(["disabled"])
 
         ttk.Button(button_frame, text="Refresh",
                    command=self.refresh_recipes, width=15, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
         ttk.Button(button_frame, text="Close",
-                   command=self.window.destroy, width=15, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
+                   command=self._on_window_close, width=15, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
 
-    # Ø¨Ø§Ù‚ÙŠ Ø§Ù„Ø¯ÙˆØ§Ù„ ØªØ¨Ù‚Ù‰ ÙƒÙ…Ø§ Ù‡ÙŠ (Ø¯ÙˆÙ† ØªØºÙŠÙŠØ±)
+    # باقي الدوال تبقى كما هي (دون تغيير)
     # load_recipes, perform_search, reset_search, display_recipes, select_recipe_by_id
     # on_recipe_select, show_recipe_details, update_main_details_tab, update_cost_tab
     # calculate_custom_batch, clear_all_tabs, export_selected_recipe, delete_recipe
     # refresh_recipes, copy_recipe
 
     def load_recipes(self):
-        """ØªØ­Ù…ÙŠÙ„ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª"""
+        """تحميل قائمة الريتشتات"""
         try:
-            # ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª
+            # تحميل الريتشتات
             recipes = self.db.get_all_recipes()
 
-            # Ø­ÙØ¸ Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„Ù„Ø¨Ø­Ø« ÙˆØ§Ù„ØªØ±ØªÙŠØ¨
+            # حفظ جميع البيانات للبحث والترتيب
             self.all_recipes_data = []
 
-            # Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª Ø¥Ù„Ù‰ Ø§Ù„Ø´Ø¬Ø±Ø©
+            # إضافة الريتشتات إلى الشجرة
             for recipe in recipes:
                 recipe_data = (
                     recipe.id,
@@ -361,31 +387,31 @@ class SavedRecipesWindow:
                     recipe.created_at.split()[0] if recipe.created_at else ""
                 )
 
-                # Ø­ÙØ¸ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+                # حفظ البيانات
                 self.all_recipes_data.append(recipe_data)
 
-            # Ø¹Ø±Ø¶ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¨Ø§Ø³ØªØ®Ø¯Ø§Ù… display_recipes Ù„Ø¶Ù…Ø§Ù† ØªØ­Ø¯ÙŠØ« current_displayed_data
+            # عرض البيانات باستخدام display_recipes لضمان تحديث current_displayed_data
             self.display_recipes(self.all_recipes_data)
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load recipes: {str(e)}", parent=self.window)
 
     def perform_search(self):
-        """ØªÙ†ÙÙŠØ° Ø§Ù„Ø¨Ø­Ø«"""
+        """تنفيذ البحث"""
         code_search = self.search_code_var.get().strip().upper()
         name_search = self.search_name_var.get().strip().lower()
 
         if not code_search and not name_search:
-            # Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ø¨Ø­Ø« ÙØ§Ø±ØºØ§Ù‹ØŒ Ø¹Ø±Ø¶ Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª
+            # إذا كان البحث فارغاً، عرض جميع الريتشتات
             self.display_recipes(self.all_recipes_data)
             return
 
         filtered_recipes = []
         for recipe_data in self.all_recipes_data:
-            # Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„ÙƒÙˆØ¯
+            # البحث بالكود
             code_match = code_search in str(recipe_data[1]).upper() if code_search else True
 
-            # Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù…
+            # البحث بالاسم
             name_match = name_search in str(recipe_data[2]).lower() if name_search else True
 
             if code_match and name_match:
@@ -394,40 +420,40 @@ class SavedRecipesWindow:
         self.display_recipes(filtered_recipes)
 
     def reset_search(self):
-        """Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø¨Ø­Ø«"""
+        """إعادة تعيين البحث"""
         self.search_code_var.set("")
         self.search_name_var.set("")
         self.display_recipes(self.all_recipes_data)
         self.search_code_entry.focus()
 
     def display_recipes(self, recipes_data):
-        """Ø¹Ø±Ø¶ Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª ÙÙŠ Ø§Ù„Ø´Ø¬Ø±Ø©"""
-        # Ù…Ø³Ø­ Ø§Ù„Ø´Ø¬Ø±Ø©
+        """عرض الريتشتات في الشجرة"""
+        # مسح الشجرة
         for item in self.recipe_tree.get_children():
             self.recipe_tree.delete(item)
 
-        # Ø­ÙØ¸ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø¹Ø±ÙˆØ¶Ø© Ø­Ø§Ù„ÙŠØ§Ù‹
+        # حفظ البيانات المعروضة حالياً
         self.current_displayed_data = list(recipes_data)
 
-        # Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª
+        # إضافة الريتشتات
         for recipe_data in recipes_data:
-            self.recipe_tree.insert("", tk.END, values=recipe_data)
+            zebra_insert(self.recipe_tree, recipe_data)
 
     def select_recipe_by_id(self, recipe_id: int):
-        """ØªØ­Ø¯ÙŠØ¯ Ø±ÙŠØªØ´Øª Ø¨ÙˆØ§Ø³Ø·Ø© ID"""
-        # Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ø±ÙŠØªØ´Øª ÙÙŠ Ø§Ù„Ø´Ø¬Ø±Ø©
+        """تحديد ريتشت بواسطة ID"""
+        # البحث عن الريتشت في الشجرة
         for item in self.recipe_tree.get_children():
             values = self.recipe_tree.item(item, "values")
             if values and int(values[0]) == recipe_id:
                 self.recipe_tree.selection_set(item)
                 self.recipe_tree.focus(item)
                 self.recipe_tree.see(item)
-                # ØªØ£Ø®ÙŠØ± Ø¹Ø±Ø¶ Ø§Ù„ØªÙØ§ØµÙŠÙ„ Ù‚Ù„ÙŠÙ„Ø§Ù‹ Ù„Ù„ØªØ£ÙƒØ¯ Ù…Ù† ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø´Ø¬Ø±Ø©
+                # تأخير عرض التفاصيل قليلاً للتأكد من تحميل الشجرة
                 self.window.after(100, lambda: self.on_recipe_select())
                 break
 
     def on_recipe_select(self, event=None):
-        """Ø¹Ù†Ø¯ ØªØ­Ø¯ÙŠØ¯ Ø±ÙŠØªØ´Øª"""
+        """عند تحديد ريتشت"""
         selected = self.recipe_tree.selection()
         if not selected:
             return
@@ -436,9 +462,9 @@ class SavedRecipesWindow:
         self.show_recipe_details(recipe_id)
 
     def show_recipe_details(self, recipe_id: int):
-        """Ø¹Ø±Ø¶ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø±ÙŠØªØ´Øª ÙÙŠ Ø¬Ù…ÙŠØ¹ Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª"""
+        """عرض تفاصيل الريتشت في جميع التبويبات"""
         try:
-            # Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø±ÙŠØªØ´Øª Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+            # الحصول على تفاصيل الريتشت من قاعدة البيانات
             recipe_data = self.db.get_recipe_details(recipe_id)
             
             if not recipe_data:
@@ -447,11 +473,11 @@ class SavedRecipesWindow:
 
             recipe_obj = recipe_data['recipe']
             colors_list = recipe_data['colors']
-            chemicals = recipe_data.get('chemicals', [])  # Ø§Ø³ØªØ±Ø¬Ø§Ø¹ Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©
+            chemicals = recipe_data.get('chemicals', [])  # استرجاع الكيماويات المحفوظة
             total_percentage = recipe_data.get('total_percentage', 0.0) or 0.0
             total_cost = recipe_data.get('total_cost', 0.0) or 0.0
             
-            # ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù†ÙˆØ¹ Ø§Ù„Ù…Ù‡ÙŠÙ…Ù† Ù…Ù† Ø§Ù„Ø£Ù„ÙˆØ§Ù†
+            # تحديد النوع المهيمن من الألوان
             type_totals = {}
             for color in colors_list:
                 dye_type = color["dye_type"]
@@ -459,12 +485,12 @@ class SavedRecipesWindow:
 
             dominant_type = max(type_totals, key=type_totals.get) if type_totals else "Unknown"
 
-            # ØªØ­Ø¯ÙŠØ« Ø¬Ù…ÙŠØ¹ Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª
+            # تحديث جميع التبويبات
             self.update_main_details_tab(recipe_obj.recipe_code, recipe_obj.name, recipe_obj.created_at,
                                          dominant_type, total_percentage, total_cost,
                                          colors_list, chemicals)
 
-            # Ø­ÙØ¸ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø­Ø§Ù„ÙŠØ© Ø¨Ø´ÙƒÙ„ ØµØ­ÙŠØ­
+            # حفظ البيانات الحالية بشكل صحيح
             self.current_recipe_data = {
                 'id': recipe_id,
                 'recipe_code': recipe_obj.recipe_code,
@@ -483,37 +509,34 @@ class SavedRecipesWindow:
     def update_main_details_tab(self, recipe_code, recipe_name, created_at,
                                 dominant_type, total_percentage, total_cost,
                                 colors_list, chemicals):
-        """ØªØ­Ø¯ÙŠØ« ØªØ¨ÙˆÙŠØ¨ Ø§Ù„ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©"""
-        # ØªØ­Ø¯ÙŠØ« Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„ÙˆØµÙØ©
+        """تحديث تبويب التفاصيل الرئيسية"""
+        # تحديث معلومات الوصفة
         self.recipe_code_value.config(text=recipe_code or "N/A")
         self.recipe_name_value.config(text=recipe_name)
         self.created_date_value.config(text=created_at)
         self.dominant_type_value.config(text=dominant_type)
         self.total_percentage_value.config(text=f"{(total_percentage or 0.0):.2f}%")
+        self.total_cost_value.config(text=f"EUR {(total_cost or 0.0):.2f}")
 
-        # ØªØ­Ø¯ÙŠØ« Ø´Ø¬Ø±Ø© Ø§Ù„Ø£Ù„ÙˆØ§Ù†
+        # تحديث شجرة الألوان
         for item in self.colors_tree.get_children():
             self.colors_tree.delete(item)
 
         for color in colors_list:
-            self.colors_tree.insert("", tk.END, values=(
+            zebra_insert(self.colors_tree, (
                 color["code"],
                 color["name"],
                 color["dye_type"],
                 f"{(color.get('percentage', 0.0) or 0.0):.2f}%",
-                f"€{(color.get('price_kg', 0.0) or 0.0):.2f}"
+                f"EUR {(color.get('price_kg', 0.0) or 0.0):.2f}"
             ))
 
-        # ØªØ­Ø¯ÙŠØ« Ù…Ù„Ø®Øµ Ø§Ù„Ø£Ù„ÙˆØ§Ù†
-        self.colors_count_label.config(text=str(len(colors_list)))
-        self.colors_percentage_label.config(text=f"{(total_percentage or 0.0):.2f}%")
-
-        # ØªØ­Ø¯ÙŠØ« Ø´Ø¬Ø±Ø© Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª
+        # تحديث شجرة الكيماويات
         for item in self.chemicals_tree.get_children():
             self.chemicals_tree.delete(item)
 
         for chemical in chemicals:
-            self.chemicals_tree.insert("", tk.END, values=(
+            zebra_insert(self.chemicals_tree, (
                 chemical.code,
                 chemical.name,
                 chemical.quantity,
@@ -521,32 +544,31 @@ class SavedRecipesWindow:
             ))
 
     def clear_all_tabs(self):
-        """Ù…Ø³Ø­ Ø¬Ù…ÙŠØ¹ Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª"""
-        # Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„ÙˆØµÙØ©
+        """مسح جميع التبويبات"""
+        # معلومات الوصفة
         self.recipe_code_value.config(text="")
         self.recipe_name_value.config(text="")
         self.created_date_value.config(text="")
         self.dominant_type_value.config(text="")
         self.total_percentage_value.config(text="")
+        self.total_cost_value.config(text="")
 
-        # Ø§Ù„Ø£Ù„ÙˆØ§Ù†
+        # الألوان
         for item in self.colors_tree.get_children():
             self.colors_tree.delete(item)
-        self.colors_count_label.config(text="0")
-        self.colors_percentage_label.config(text="0.00%")
 
-        # Ø§Ù„ÙƒÙŠÙ…Ø§ÙˆÙŠØ§Øª
+        # الكيماويات
         for item in self.chemicals_tree.get_children():
             self.chemicals_tree.delete(item)
 
     def export_selected_recipe(self):
-        """ØªØµØ¯ÙŠØ± Ø§Ù„Ø±ÙŠØªØ´Øª Ø§Ù„Ù…Ø­Ø¯Ø¯ Ø¥Ù„Ù‰ PDF"""
+        """تصدير الريتشت المحدد إلى PDF"""
         if not hasattr(self, 'current_recipe_data') or self.current_recipe_data is None:
             messagebox.showwarning("Warning", "Please select a recipe first", parent=self.window)
             return
 
         try:
-            # Ø¥Ù†Ø´Ø§Ø¡ ÙƒØ§Ø¦Ù† RecipeDetails
+            # إنشاء كائن RecipeDetails
             from app.models import Recipe, RecipeDetails
 
             recipe_obj = Recipe(
@@ -565,7 +587,7 @@ class SavedRecipesWindow:
                 cost=self.current_recipe_data['total_cost']
             )
 
-            # Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„ØªØµØ¯ÙŠØ± Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ
+            # استخدام التصدير التلقائي
             pdf_path = PDFExporter.export_recipe_to_pdf_auto(recipe_details)
 
             if pdf_path:
@@ -579,8 +601,122 @@ class SavedRecipesWindow:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export recipe: {str(e)}", parent=self.window)
 
+
+    def edit_recipe(self):
+        """Open a dialog to rename/recode the selected recipe.
+
+        Rules enforced here (and in DatabaseManager.update_recipe):
+        - Code must be digits only (0-9).
+        - Code max 6 digits; zero-padded on the left to 6 (e.g. 66 -> 000066).
+        - Code must be unique across all recipes.
+        """
+        if not self.session.has_permission("can_edit"):
+            messagebox.showwarning("Permission Denied", "You do not have permission to edit recipes.", parent=self.window)
+            return
+
+        selected = self.recipe_tree.selection()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a recipe to edit.", parent=self.window)
+            return
+
+        values = self.recipe_tree.item(selected[0], "values")
+        recipe_id = int(values[0])
+        current_code = values[1]
+        current_name = values[2]
+
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Edit Recipe")
+        dialog.resizable(False, False)
+        dialog.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
+        _show_on_top(dialog, self.window)
+
+        # Centre the dialog over the parent window
+        dialog.update_idletasks()
+        dw, dh = 420, 210
+        px = self.window.winfo_rootx() + (self.window.winfo_width() - dw) // 2
+        py = self.window.winfo_rooty() + (self.window.winfo_height() - dh) // 2
+        dialog.geometry(f"{dw}x{dh}+{px}+{py}")
+
+        pad = {"padx": 12, "pady": 7}
+
+        # ── Code entry (digits only, max 6 chars) ──
+        ttk.Label(dialog, text="Recipe Code (digits, max 6):", font=('Arial', 9, 'bold')).grid(
+            row=0, column=0, sticky="e", **pad)
+
+        code_var = tk.StringVar(value=current_code.lstrip('0') or '0')
+        preview_var = tk.StringVar()
+
+        def _update_preview(*_):
+            raw = code_var.get()
+            if raw.isdigit() and 1 <= len(raw) <= 6:
+                preview_var.set(f"Will be saved as: {raw.zfill(6)}")
+            elif not raw:
+                preview_var.set("Will be saved as: ------")
+            elif not raw.isdigit():
+                preview_var.set("Digits only (0-9) allowed!")
+            else:
+                preview_var.set(f"Max 6 digits allowed! (entered {len(raw)})")
+
+        # Validate: only digits, max 6 characters
+        def _validate(P):
+            return P == "" or (P.isdigit() and len(P) <= 6)
+
+        vcmd = (dialog.register(_validate), '%P')
+        code_entry = ttk.Entry(dialog, textvariable=code_var, width=20,
+                               validate='key', validatecommand=vcmd)
+        code_entry.grid(row=0, column=1, sticky="w", **pad)
+        code_entry.focus_set()
+        code_var.trace_add('write', _update_preview)
+        _update_preview()
+
+        # Live preview label
+        preview_label = ttk.Label(dialog, textvariable=preview_var,
+                                  font=('Arial', 8, 'italic'), foreground='#555555')
+        preview_label.grid(row=1, column=0, columnspan=2, sticky="w", padx=12, pady=0)
+
+        # ── Name entry ──
+        ttk.Label(dialog, text="Recipe Name:", font=('Arial', 9, 'bold')).grid(
+            row=2, column=0, sticky="e", **pad)
+        name_var = tk.StringVar(value=current_name)
+        name_entry = ttk.Entry(dialog, textvariable=name_var, width=28)
+        name_entry.grid(row=2, column=1, sticky="w", **pad)
+
+        # ── Save callback ──
+        def do_save():
+            new_code = code_var.get().strip()
+            new_name = name_var.get().strip()
+            if not new_code or not new_name:
+                messagebox.showwarning("Validation", "Both code and name are required.", parent=dialog)
+                return
+            ok, msg = self.db.update_recipe(recipe_id, new_code, new_name)
+            if ok:
+                self.data_changed = True
+                self.load_recipes()
+                self._notify_data_changed()
+                if hasattr(self, 'current_recipe_data') and self.current_recipe_data and \
+                        self.current_recipe_data.get('id') == recipe_id:
+                    self.show_recipe_details(recipe_id)
+                dialog.destroy()
+                messagebox.showinfo("Success", msg, parent=self.window)
+            else:
+                messagebox.showerror("Error", msg, parent=dialog)
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=12)
+        ttk.Button(btn_frame, text="Save", command=do_save,
+                   width=12, style='Sub.TButton').pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy,
+                   width=12, style='Sub.TButton').pack(side=tk.LEFT, padx=8)
+
+        dialog.bind("<Return>", lambda e: do_save())
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+
+
     def delete_recipe(self):
-        """Ø­Ø°Ù Ø§Ù„Ø±ÙŠØªØ´Øª Ø§Ù„Ù…Ø­Ø¯Ø¯"""
+        """حذف الريتشت المحدد"""
+        if not self.session.has_permission("can_delete"):
+            messagebox.showwarning("Permission Denied", "You do not have permission to delete recipes.", parent=self.window)
+            return
         selected = self.recipe_tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Please select a recipe to delete", parent=self.window)
@@ -590,7 +726,7 @@ class SavedRecipesWindow:
         recipe_code = self.recipe_tree.item(selected[0], "values")[1]
         recipe_name = self.recipe_tree.item(selected[0], "values")[2]
 
-        # Ø·Ù„Ø¨ Ø§Ù„ØªØ£ÙƒÙŠØ¯
+        # طلب التأكيد
         confirm_msg = f"Are you sure you want to delete recipe '{recipe_name}'?"
         if recipe_code:
             confirm_msg = f"Are you sure you want to delete recipe '{recipe_code} - {recipe_name}'?"
@@ -609,31 +745,30 @@ class SavedRecipesWindow:
                 messagebox.showerror("Error", f"Failed to delete recipe: {str(e)}", parent=self.window)
 
     def sort_treeview(self, col):
-        """ØªØ±ØªÙŠØ¨ Ø§Ù„Ø´Ø¬Ø±Ø© Ø­Ø³Ø¨ Ø§Ù„Ø¹Ù…ÙˆØ¯ Ø§Ù„Ù…Ø­Ø¯Ø¯"""
+        """ترتيب الشجرة حسب العمود المحدد"""
         if not self.current_displayed_data:
             return
 
-        # ØªØ­Ø¯ÙŠØ¯ Ø¥Ø°Ø§ ÙƒØ§Ù† Ù†ÙØ³ Ø§Ù„Ø¹Ù…ÙˆØ¯ØŒ Ø¹ÙƒØ³ Ø§Ù„ØªØ±ØªÙŠØ¨
+        # تحديد إذا كان نفس العمود، عكس الترتيب
         if self.sort_column == col:
             self.sort_reverse = not self.sort_reverse
         else:
             self.sort_column = col
             self.sort_reverse = False
 
-        # ØªØ±ØªÙŠØ¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+        # ترتيب البيانات
         if col == "id":
-            # ØªØ±ØªÙŠØ¨ Ø±Ù‚Ù…ÙŠ Ù„Ù„Ù€ ID
+            # ترتيب رقمي للـ ID
             sorted_data = sorted(self.current_displayed_data, key=lambda x: int(x[0]), reverse=self.sort_reverse)
         else:
-            # ØªØ±ØªÙŠØ¨ Ù†ØµÙŠ Ù„Ù„Ø£Ø¹Ù…Ø¯Ø© Ø§Ù„Ø£Ø®Ø±Ù‰
+            # ترتيب نصي للأعمدة الأخرى
             col_index = {"recipe_code": 1, "name": 2, "created_at": 3}[col]
             sorted_data = sorted(self.current_displayed_data, key=lambda x: str(x[col_index]).lower(), reverse=self.sort_reverse)
 
-        # Ø¹Ø±Ø¶ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø±ØªØ¨Ø©
+        # عرض البيانات المرتبة
         self.display_recipes(sorted_data)
 
     def refresh_recipes(self):
-        """ØªØ­Ø¯ÙŠØ« Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø±ÙŠØªØ´ØªØ§Øª"""
+        """تحديث قائمة الريتشتات"""
         self.load_recipes()
         self.clear_all_tabs()
-

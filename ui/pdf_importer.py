@@ -4,6 +4,7 @@
 import re
 from typing import List, Dict
 import pdfplumber
+from app.utils import clean_recipe_code
 
 
 class PDFRecipeImporter:
@@ -29,7 +30,7 @@ class PDFRecipeImporter:
                     # استخراج رقم الوصفة (Ricetta_ID)
                     code_match = re.search(r'Ricetta_ID\s*(\d+)', text)
                     if code_match and not recipe_data['recipe_code']:
-                        recipe_data['recipe_code'] = code_match.group(1).strip()
+                        recipe_data['recipe_code'] = clean_recipe_code(code_match.group(1).strip())
 
                     # استخراج اسم الوصفة (محسن)
                     if not recipe_data['recipe_name']:
@@ -190,7 +191,7 @@ class PDFRecipeImporter:
             for pattern in code_patterns:
                 match = re.search(pattern, text)
                 if match:
-                    recipe_data['recipe_code'] = match.group(1) if match.groups() else '38357'
+                    recipe_data['recipe_code'] = clean_recipe_code(match.group(1) if match.groups() else '38357')
                     break
 
             # البحث عن اسم الوصفة (محسن)

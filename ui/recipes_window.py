@@ -7,7 +7,11 @@ from tkinter import ttk, messagebox
 # استيرادات محلية من app
 from app.models import Recipe
 from app.database import DatabaseManager
-from ui.theme_tokens import LIGHT_THEME, configure_sub_button_style
+from app.session import SessionManager
+from ui.theme_tokens import (
+    configure_sub_button_style, setup_tree_tags, zebra_insert,
+    get_theme_tokens, apply_excel_treeview_style,
+)
 
 
 def _show_on_top(window, parent):
@@ -18,17 +22,19 @@ def _show_on_top(window, parent):
         window.grab_set()
         window.attributes("-topmost", True)
         window.after(250, lambda: window.attributes("-topmost", False))
-    except Exception:
+    except tk.TclError:
         pass
 
 
 class RecipesWindow:
     """نافذة الريتشتات - توافق كامل مع SavedRecipesWindow"""
 
-    def __init__(self, parent, db: DatabaseManager, recipe_id=None):
+    def __init__(self, parent, db: DatabaseManager, recipe_id=None, dark_mode: bool = False):
         self.parent = parent
         self.db = db
+        self.session = SessionManager.get_session()
         self.recipe_id = recipe_id
+        self.dark_mode = dark_mode
         self._tree_item_recipe_ids: dict[str, int] = {}
 
         # إنشاء النافذة
@@ -40,7 +46,7 @@ class RecipesWindow:
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.82)
+        height = int(screen_height * 0.86)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -48,7 +54,7 @@ class RecipesWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.minsize(980, 620)
+        self.window.minsize(980, 700)
 
 
         # تحميل البيانات
@@ -74,7 +80,9 @@ class RecipesWindow:
 
     def configure_styles(self):
         style = ttk.Style(self.window)
-        configure_sub_button_style(style, 'Sub.TButton', LIGHT_THEME)
+        palette = get_theme_tokens(self.dark_mode)
+        apply_excel_treeview_style(style, palette, self.dark_mode)
+        configure_sub_button_style(style, 'Sub.TButton', palette)
 
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
@@ -110,7 +118,7 @@ class RecipesWindow:
         # شجرة الريتشتات
         # Updated columns: removed 'customer' and 'fabric'
         columns = ("code", "name", "colors", "total%", "created")
-        self.recipes_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
+        self.recipes_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=12)
 
         # تعريف العناوين
         self.recipes_tree.heading("code", text="Recipe Code")
@@ -133,6 +141,7 @@ class RecipesWindow:
         self.recipes_tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.recipes_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        setup_tree_tags(self.recipes_tree, self.dark_mode)
 
         # إطار تفاصيل الريتشت
         details_frame = ttk.LabelFrame(main_frame, text="Recipe Details", padding=10)
@@ -165,7 +174,7 @@ class RecipesWindow:
 
         # شجرة الألوان
         columns = ("code", "name", "type", "percentage", "price")
-        self.colors_tree = ttk.Treeview(colors_frame, columns=columns, show="headings", height=8)
+        self.colors_tree = ttk.Treeview(colors_frame, columns=columns, show="headings", height=6)
 
         self.colors_tree.heading("code", text="Color Code")
         self.colors_tree.heading("name", text="Color Name")
@@ -183,17 +192,22 @@ class RecipesWindow:
         self.colors_tree.configure(yscrollcommand=scrollbar_colors.set)
         scrollbar_colors.pack(side=tk.RIGHT, fill=tk.Y)
         self.colors_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        setup_tree_tags(self.colors_tree, self.dark_mode)
 
         # أزرار التحكم
         control_frame = ttk.Frame(main_frame)
-        control_frame.pack(fill=tk.X, pady=10)
+        control_frame.pack(fill=tk.X, pady=6)
 
         ttk.Button(control_frame, text="View Details",
                    command=self.view_selected_recipe, width=15).pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Edit Recipe",
                    command=self.edit_recipe, width=15).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Delete Recipe",
-                   command=self.delete_recipe, width=15).pack(side=tk.LEFT, padx=5)
+
+        self.delete_recipe_button = ttk.Button(control_frame, text="Delete Recipe",
+                                               command=self.delete_recipe, width=15)
+        self.delete_recipe_button.pack(side=tk.LEFT, padx=5)
+        if not self.session.has_permission("can_delete"):
+            self.delete_recipe_button.state(["disabled"])
         ttk.Button(control_frame, text="Refresh",
                    command=self.refresh_data, width=15).pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Close",
@@ -216,16 +230,15 @@ class RecipesWindow:
         self._tree_item_recipe_ids.clear()
 
         if not self.recipes_data:
-            self.recipes_tree.insert("", tk.END, values=("No recipes found", "", "", "", ""))
+            zebra_insert(self.recipes_tree, ("No recipes found", "", "", "", ""))
             return
 
         for recipe in self.recipes_data:
-            # Assuming recipe is a Recipe object now
-            item_id = self.recipes_tree.insert("", tk.END, values=(
+            item_id = zebra_insert(self.recipes_tree, (
                 recipe.recipe_code,
                 recipe.name,
-                self.db.get_recipe_colors_count(recipe.id), # Get colors count from DB
-                f"{self.db.get_recipe_total_percentage(recipe.id):.2f}%", # Get total percentage from DB
+                self.db.get_recipe_colors_count(recipe.id),
+                f"{self.db.get_recipe_total_percentage(recipe.id):.2f}%",
                 recipe.created_at[:10] if recipe.created_at else ''
             ))
             self._tree_item_recipe_ids[item_id] = recipe.id
@@ -271,7 +284,7 @@ class RecipesWindow:
             # إضافة الألوان
             if colors_in_recipe:
                 for color in colors_in_recipe:
-                    self.colors_tree.insert("", tk.END, values=(
+                    zebra_insert(self.colors_tree, (
                         color.get('code', ''),
                         color.get('name', ''),
                         color.get('dye_type', ''),
@@ -338,6 +351,9 @@ class RecipesWindow:
 
     def delete_recipe(self):
         """حذف الريتشت المحدد"""
+        if not self.session.has_permission("can_delete"):
+            messagebox.showwarning("Permission Denied", "You do not have permission to delete recipes.", parent=self.window)
+            return
         selected = self.recipes_tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Please select a recipe to delete", parent=self.window)

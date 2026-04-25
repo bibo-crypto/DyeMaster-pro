@@ -16,7 +16,6 @@ Update flow:
        e) Cleans up .old files and itself
 """
 
-import hashlib
 import ctypes
 import os
 import shutil
@@ -29,7 +28,7 @@ import zipfile
 import requests
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+# ─────────────────────────────────────────────────────────────────────────── #
 
 def _get_install_dir() -> str:
     """Folder that contains the running executable (works for onedir & onefile)."""
@@ -84,19 +83,7 @@ def _clear_pending_restore():
         pass
 
 
-def _read_pending_restore() -> str | None:
-    marker = _get_pending_restore_marker()
-    if os.path.exists(marker):
-        try:
-            with open(marker, "r", encoding="utf-8") as fh:
-                path = fh.read().strip()
-                return path if path else None
-        except Exception:
-            return None
-    return None
-
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+# ─────────────────────────────────────────────────────────────────────────── #
 
 class AppUpdater:
     def __init__(self, current_version: str = "1.0.0"):
@@ -108,7 +95,7 @@ class AppUpdater:
             f"{self.repo_owner}/{self.repo_name}/releases/latest"
         )
 
-    # â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+    # ── Public API ────────────────────────────────────────────────────── #
 
     def check_for_updates(self):
         ok, ver, notes, payload = self.get_latest_release()
@@ -166,7 +153,7 @@ class AppUpdater:
             exe_stem    = os.path.splitext(exe_name)[0]      # main
             current_exe = os.path.abspath(sys.executable)
 
-            # Staging paths â€“ all inside install_dir (same NTFS volume)
+            # Staging paths – all inside install_dir (same NTFS volume)
             install_writable = _is_dir_writable(install_dir)
             staging_root = install_dir if install_writable else _get_user_update_root()
             os.makedirs(staging_root, exist_ok=True)
@@ -187,7 +174,7 @@ class AppUpdater:
                 shutil.rmtree(staging_dir, ignore_errors=True)
             os.makedirs(staging_dir, exist_ok=True)
 
-            # â”€â”€ Progress window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            # ── Progress window ──────────────────────────────────────── #
             result_holder  = [None]
             progress_win   = None
             progress_var   = None
@@ -317,7 +304,7 @@ class AppUpdater:
                 shutil.rmtree(staging_dir, ignore_errors=True)
                 return False
 
-            # â”€â”€ Validate & extract zip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            # ── Validate & extract zip ───────────────────────────────── #
             if not zipfile.is_zipfile(zip_path):
                 messagebox.showerror("Update Error", "Downloaded file is not a valid ZIP.")
                 shutil.rmtree(staging_dir, ignore_errors=True)
@@ -360,11 +347,11 @@ class AppUpdater:
             except Exception:
                 pass
 
-            # â”€â”€ Build the batch updater â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            # ── Build the batch updater ──────────────────────────────── #
             # Strategy:
             #   - cd into install_dir
-            #   - rename main.exe â†’ main.exe.old
-            #   - copy all files from new_exe_dir â†’ install_dir  (xcopy)
+            #   - rename main.exe → main.exe.old
+            #   - copy all files from new_exe_dir → install_dir  (xcopy)
             #   - launch new main.exe
             #   - cleanup
 
@@ -375,17 +362,17 @@ class AppUpdater:
                 "setlocal",
                 f'cd /D "{install_dir}"',
                 "",
-                ":: â”€â”€ Wait for old process to exit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€",
+                ":: ── Wait for old process to exit ──────────────────────────",
                 ":WAIT",
                 f'  tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul 2>&1',
                 "  if not errorlevel 1 (",
                 "    ping 127.0.0.1 -n 2 -w 1000 >nul",
                 "    goto WAIT",
                 "  )",
-                ":: Extra settle â€“ wait for Windows to release file handles",
+                ":: Extra settle – wait for Windows to release file handles",
                 "ping 127.0.0.1 -n 5 -w 1000 >nul",
                 "",
-                ":: â”€â”€ Backup current exe â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€",
+                ":: ── Backup current exe ─────────────────────────────────────",
                 f'if exist "{exe_name}.old" del /F /Q "{exe_name}.old"',
                 f'ren "{exe_name}" "{exe_name}.old"',
                 f'if not exist "{exe_name}.old" (',
@@ -393,7 +380,7 @@ class AppUpdater:
                 '  goto CLEANUP',
                 ')',
                 "",
-                ":: â”€â”€ Copy new files into place (xcopy overwrites everything) â”€",
+                ":: ── Copy new files into place (xcopy overwrites everything) ─",
                 f'xcopy /E /Y /I /Q "{new_exe_dir}\\*" "{install_dir}\\"',
                 f'if not exist "{exe_name}" (',
                 '  echo ERROR: New exe not found after copy - rolling back.',
@@ -401,7 +388,7 @@ class AppUpdater:
                 '  goto CLEANUP',
                 ')',
                 "",
-                ":: â”€â”€ Launch new version â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€",
+                ":: ── Launch new version ─────────────────────────────────────",
                 f'start "" /D "{install_dir}" "{current_exe}"',
                 "",
                 ":CLEANUP",
@@ -416,7 +403,7 @@ class AppUpdater:
             with open(bat_path, "w", encoding="ascii", errors="replace") as bf:
                 bf.write(bat_content)
 
-            # â”€â”€ Launch batch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            # ── Launch batch ─────────────────────────────────────────── #
             if install_writable:
                 subprocess.Popen(
                     ["cmd.exe", "/C", bat_path],
@@ -450,7 +437,7 @@ class AppUpdater:
             messagebox.showerror("Update Error", f"Failed to prepare update:\n{exc}")
             return False
 
-    # â”€â”€ Internal helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+    # ── Internal helpers ──────────────────────────────────────────────── #
 
     def _find_exe_in_dir(self, root: str, exe_name: str) -> str | None:
         """
@@ -588,14 +575,3 @@ class AppUpdater:
             return _v(latest) > _v(current)
         except Exception:
             return str(latest) > str(current)
-
-    def _calculate_file_hash(self, path: str, algo: str = "sha256"):
-        h = hashlib.new(algo)
-        try:
-            with open(path, "rb") as fh:
-                for chunk in iter(lambda: fh.read(65536), b""):
-                    h.update(chunk)
-            return h.hexdigest()
-        except Exception:
-            return None
-

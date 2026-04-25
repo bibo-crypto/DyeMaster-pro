@@ -1,16 +1,22 @@
-"""
+﻿"""
 نافذة عرض الألوان المستخدمة في الريتشتات
 """
 import tkinter as tk
 import sqlite3
-from datetime import datetime
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox
 from typing import Dict, Any
 from app.models import Color
+from app.session import SessionManager
 from color_helper import fix_color_code
 
-from app.utils import clean_color_code, parse_percentage_input, parse_number_input
+from app.utils import clean_color_code, parse_percentage_input, parse_number_input, normalize_dye_type_label
 from app.config import DYE_TYPES
+from ui.theme_tokens import (
+    setup_tree_tags,
+    zebra_insert,
+    get_theme_tokens,
+    apply_excel_treeview_style,
+)
 
 
 def _show_on_top(window, parent):
@@ -31,11 +37,13 @@ def _show_on_top(window, parent):
 class SimpleColorsWindow:
     """نافذة مبسطة لتعديل الألوان"""
 
-    def __init__(self, parent, db, color_code, callback=None):
+    def __init__(self, parent, db, color_code, callback=None, dark_mode: bool = False):
         self.parent = parent
         self.db = db
+        self.session = SessionManager.get_session()
         self.original_color_code = fix_color_code(color_code)
         self.callback = callback
+        self.dark_mode = dark_mode
 
         # ✅ أنواع الصبغة من CONFIG (متطابقة مع Add color)
         self.dye_types = DYE_TYPES
@@ -261,6 +269,8 @@ class SimpleColorsWindow:
             cursor="hand2"
         )
         delete_button.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+        if not self.session.has_permission("can_delete"):
+            delete_button.configure(state=tk.DISABLED)
 
         # ✅ زر الإلغاء
         cancel_button = tk.Button(
@@ -311,7 +321,7 @@ class SimpleColorsWindow:
             color_data = {
                 'code': new_code,
                 'name': self.name_var.get().strip(),
-                'dye_type': self.type_var.get().strip(),
+                'dye_type': normalize_dye_type_label(self.type_var.get().strip()),
                 'supplier': self.supplier_var.get().strip(),
                 'price_kg': self.price_var.get().strip(),
                 'resa_percent': resa_percent
@@ -385,48 +395,32 @@ class SimpleColorsWindow:
                                  f"Failed to save changes:\n{str(e)}", parent=self.window)
 
     def save_to_database(self, new_code, color_data, price_val, resa_val):
-        """حفظ البيانات في قاعدة البيانات"""
+        """Save color through DatabaseManager to ensure cache invalidation."""
         try:
-            conn = sqlite3.connect(self.db.db_file)
-            cursor = conn.cursor()
+            from app.models import Color
+            from app.utils import get_current_timestamp
 
-            # التحقق من هيكل الجدول
-            cursor.execute("PRAGMA table_info(colors)")
-            columns = [col[1] for col in cursor.fetchall()]
+            existing = self.db.get_color_by_code(self.original_color_code)
+            if not existing:
+                return False
 
-            # التحقق من تكرار الكود الجديد إذا تم تغييره
             if new_code != self.original_color_code:
-                cursor.execute("SELECT code FROM colors WHERE code = ?", (new_code,))
-                if cursor.fetchone():
-                    conn.close()
+                duplicate = self.db.get_color_by_code(new_code)
+                if duplicate:
                     return False
 
-            # تحديث السجل الموجود بدلاً من الحذف والإنشاء
-            # هذا يحافظ على الـ ID وبالتالي يحافظ على ارتباط اللون بالوصفات
-            update_query = """
-                UPDATE colors
-                SET code = ?,
-                    name = ?,
-                    dye_type = ?,
-                    supplier = ?,
-                    price_kg = ?,
-                    resa_percent = ?
-            """
-            params = [new_code, color_data['name'], color_data['dye_type'],
-                      color_data['supplier'], price_val, resa_val]
-
-            if 'updated_at' in columns:
-                update_query += ", updated_at = datetime('now')"
-
-            update_query += " WHERE code = ?"
-            params.append(self.original_color_code)
-
-            cursor.execute(update_query, tuple(params))
-
-            conn.commit()
-            conn.close()
-            return True
-
+            updated_color = Color(
+                id=existing.id,
+                code=new_code,
+                name=color_data['name'],
+                dye_type=color_data['dye_type'],
+                supplier=color_data['supplier'],
+                price_kg=price_val,
+                resa_percent=resa_val,
+                created_at=existing.created_at,
+                updated_at=get_current_timestamp()
+            )
+            return self.db.update_color(updated_color)
         except Exception as e:
             print(f"Database error: {e}")
             return False
@@ -435,6 +429,9 @@ class SimpleColorsWindow:
         """
         Prevents deletion of a color if it is in use and shows a warning.
         """
+        if not self.session.has_permission("can_delete"):
+            messagebox.showwarning("Permission Denied", "You do not have permission to delete colors.", parent=self.window)
+            return
         try:
             # Check if the color is used in any recipes.
             recipes_using_color = self.db.get_recipes_using_color(self.original_color_code)
@@ -444,12 +441,12 @@ class SimpleColorsWindow:
                 error_message = (
                     f"Forbidden: Color '{self.original_color_code}' cannot be deleted.\n\n"
                     f"It is currently used in {len(recipes_using_color)} recipes. "
-                    "Please review the 'Colors in Use' window to manage these recipes first."
+                    "Please review the 'Active Colors' window to manage these recipes first."
                 )
                 messagebox.showerror("Deletion Forbidden", error_message, parent=self.window)
                 return
 
-            # This part will likely not be reached if opened from ColorsInUseWindow,
+            # This part will likely not be reached if opened from ActiveColorsWindow,
             # but is kept for logical completeness in case this window is used elsewhere.
             confirm = messagebox.askyesno(
                 "Confirm Delete",
@@ -505,7 +502,7 @@ class SimpleColorsWindow:
             # حذف جميع الوصفات التي تستخدم هذا اللون، ثم حذف اللون
             self._delete_recipes_and_color(recipes_using_color)
         elif result == "manage_manually":
-            # فتح ColorsInUseWindow للإدارة اليدوية
+            # فتح ActiveColorsWindow للإدارة اليدوية
             self._open_colors_in_use_window()
 
     def _show_deletion_options_dialog(self, message, num_recipes):
@@ -593,13 +590,13 @@ class SimpleColorsWindow:
             messagebox.showerror("Error", f"Failed to delete recipes and color: {str(e)}", parent=self.window)
 
     def _open_colors_in_use_window(self):
-        """فتح ColorsInUseWindow للإدارة اليدوية"""
+        """فتح ActiveColorsWindow للإدارة اليدوية"""
         try:
-            ColorsInUseWindow(self.window, self.db, initial_search_code=self.original_color_code)
+            ActiveColorsWindow(self.window, self.db, initial_search_code=self.original_color_code)
         except ImportError:
-            messagebox.showerror("Error", "Could not import the 'Colors in Use' window component.", parent=self.window)
+            messagebox.showerror("Error", "Could not import the 'Active Colors' window component.", parent=self.window)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to open 'Colors in Use' window: {str(e)}", parent=self.window)
+            messagebox.showerror("Error", f"Failed to open 'Active Colors' window: {str(e)}", parent=self.window)
 
     def _confirm_and_delete_color(self):
         """تأكيد وحذف لون غير مستخدم"""
@@ -632,23 +629,25 @@ class SimpleColorsWindow:
 # ============================================
 # النافذة الرئيسية
 # ============================================
-class ColorsInUseWindow:
-    """نافذة الألوان المستخدمة"""
+class ActiveColorsWindow:
+    """نافذة الألوان النشطة"""
 
-    def __init__(self, parent, db, initial_search_code: str = None, on_data_changed=None):
+    def __init__(self, parent, db, initial_search_code: str = None, on_data_changed=None, dark_mode: bool = False):
         self.parent = parent
         self.db = db
+        self.session = SessionManager.get_session()
         self.on_data_changed = on_data_changed
+        self.dark_mode = dark_mode
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
-        self.window.title("Colors in Use")
+        self.window.title("Active Colors")
         
         # ضبط أبعاد النافذة لتكون متجاوبة
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.9)
-        height = int(screen_height * 0.82)
+        height = int(screen_height * 0.86)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -656,7 +655,7 @@ class ColorsInUseWindow:
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.minsize(980, 620)
+        self.window.minsize(980, 700)
 
         # Keep this as a normal top-level window (with full title-bar controls).
 
@@ -688,6 +687,8 @@ class ColorsInUseWindow:
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
         style = ttk.Style(self.window)
+        palette = get_theme_tokens(self.dark_mode)
+        apply_excel_treeview_style(style, palette, self.dark_mode)
         style.configure('Sub.TButton',
                         font=('Arial', 10, 'bold'),
                         padding=6,
@@ -724,7 +725,7 @@ class ColorsInUseWindow:
                    command=self.reset_search, width=10, style='Sub.TButton').grid(row=0, column=5, padx=5, pady=5)
 
         # إطار قائمة الألوان المستخدمة
-        list_frame = ttk.LabelFrame(self.main_frame, text="Colors in Use", padding=10)
+        list_frame = ttk.LabelFrame(self.main_frame, text="Active Colors", padding=10)
         list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # شجرة الألوان المستخدمة مع دعم الترتيب
@@ -732,7 +733,7 @@ class ColorsInUseWindow:
             list_frame,
             columns=("code", "name", "dye_type", "recipes_count", "total_percentage", "status"),
             show="headings",
-            height=15
+            height=12
         )
 
         # تعريف عناوين الأعمدة مع دعم الترتيب
@@ -769,7 +770,7 @@ class ColorsInUseWindow:
             details_frame,
             columns=("recipe_code", "recipe_name", "percentage", "recipe_id"),
             show="headings",
-            height=15
+            height=12
         )
 
         self.recipes_tree.heading("recipe_code", text="Recipe Code",
@@ -791,24 +792,31 @@ class ColorsInUseWindow:
         self.colors_tree.configure(yscrollcommand=scrollbar_colors.set)
         scrollbar_colors.pack(side=tk.RIGHT, fill=tk.Y)
         self.colors_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        setup_tree_tags(self.colors_tree, self.dark_mode)
 
         scrollbar_recipes = ttk.Scrollbar(details_frame, orient="vertical", command=self.recipes_tree.yview)
         self.recipes_tree.configure(yscrollcommand=scrollbar_recipes.set)
         scrollbar_recipes.pack(side=tk.RIGHT, fill=tk.Y)
         self.recipes_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        setup_tree_tags(self.recipes_tree, self.dark_mode)
 
         # أزرار التحكم
         control_frame = ttk.Frame(self.window)
-        control_frame.pack(fill=tk.X, padx=10, pady=10)
+        control_frame.pack(fill=tk.X, padx=10, pady=6)
 
-        ttk.Button(control_frame, text="Modify Color",
-                   command=self.modify_color, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
+        self.modify_color_btn = ttk.Button(
+            control_frame,
+            text="Modify Color",
+            command=self.modify_color,
+            style='Sub.TButton'
+        )
+        self.modify_color_btn.pack(side=tk.LEFT, padx=5)
+        if self.session.get_current_role() == "viewer":
+            self.modify_color_btn.state(["disabled"])
         ttk.Button(control_frame, text="Show Recipe",
                    command=self.show_recipe_details, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Refresh",
                    command=self.refresh_window, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Export Report",
-                   command=self.export_report, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Close",
                    command=self.window.destroy, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
@@ -951,7 +959,7 @@ class ColorsInUseWindow:
             treeview.delete(item)
 
         for values in data:
-            treeview.insert("", tk.END, values=values)
+            zebra_insert(treeview, values)
 
         # تحديث عنوان العمود للإشارة للاتجاه
         direction = "(desc)" if reverse else "(asc)"
@@ -985,7 +993,7 @@ class ColorsInUseWindow:
             self.colors_tree.delete(item)
 
         if not self.color_usage:
-            self.colors_tree.insert("", tk.END, values=("No colors in use", "", "", "", "", "No usage"))
+            zebra_insert(self.colors_tree, ("No colors in use", "", "", "", "", "No usage"))
             return
 
         colors_list = []
@@ -1025,7 +1033,7 @@ class ColorsInUseWindow:
 
         # إضافة البيانات للشجرة
         for color in colors_list:
-            self.colors_tree.insert("", tk.END, values=(
+            zebra_insert(self.colors_tree, (
                 color['code'],
                 color['name'],
                 color['dye_type'],
@@ -1072,17 +1080,20 @@ class ColorsInUseWindow:
 
                 # إضافة البيانات للشجرة
                 for recipe in recipes_list:
-                    self.recipes_tree.insert("", tk.END, values=(
+                    zebra_insert(self.recipes_tree, (
                         recipe['recipe_code'],
                         recipe['recipe_name'],
                         f"{recipe['percentage']:.2f}%",
                         recipe['recipe_id']
                     ))
             else:
-                self.recipes_tree.insert("", tk.END, values=("No recipes found", "", "", ""))
+                zebra_insert(self.recipes_tree, ("No recipes found", "", "", ""))
 
     def modify_color(self):
         """تعديل اللون المحدد"""
+        if self.session.get_current_role() == "viewer":
+            messagebox.showwarning("Permission Denied", "You do not have permission to modify colors here.", parent=self.window)
+            return
         selected = self.colors_tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Please select a color to modify", parent=self.window)
@@ -1092,12 +1103,14 @@ class ColorsInUseWindow:
             color_code_display = self.colors_tree.item(selected[0])["values"][0]
             color_code = clean_color_code(color_code_display)
 
+
             # ✅ استخدم SimpleColorsWindow مباشرة مع دالة callback للتحديث
             SimpleColorsWindow(
                 self.window,
                 self.db,
                 color_code,
-                callback=self._on_color_changed
+                callback=self._on_color_changed,
+                dark_mode=self.dark_mode
             )
 
         except Exception as e:
@@ -1149,53 +1162,7 @@ class ColorsInUseWindow:
         """تحديث النافذة"""
         self.load_data()
 
-    def export_report(self):
-        """تصدير تقرير الألوان المستخدمة - إصدار بديل بدون Excel"""
-        try:
-            if not self.color_usage:
-                messagebox.showinfo("Info", "No data to export", parent=self.window)
-                return
 
-            # إنشاء نص التقرير
-            report_text = "Colors Usage Report\n"
-            report_text += "=" * 50 + "\n\n"
-            report_text += f"Report Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            report_text += f"Total Colors in Use: {len(self.color_usage)}\n\n"
-
-            report_text += "Color Details:\n"
-            report_text += "-" * 50 + "\n"
-
-            for color_code, usage_info in self.color_usage.items():
-                if usage_info.get('color_info'):
-                    color_info = usage_info['color_info']
-                    report_text += f"\nColor Code: {color_code.upper()}\n"
-                    report_text += f"Name: {color_info['name']}\n"
-                    report_text += f"Type: {color_info['dye_type']}\n"
-                    report_text += f"Supplier: {color_info.get('supplier', 'N/A')}\n"
-                    report_text += f"Recipes Count: {usage_info['total_recipes']}\n"
-                    report_text += f"Total Percentage: {usage_info['total_percentage']:.2f}%\n"
-
-                    if usage_info['recipes']:
-                        report_text += "  Recipes:\n"
-                        for recipe in usage_info['recipes']:
-                            report_text += f"    - {recipe['recipe_code']}: {recipe['recipe_name']} ({recipe['percentage']:.2f}%)\n"
-
-                    report_text += "-" * 30 + "\n"
-
-            # حفظ التقرير كملف نصي
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".txt",
-                filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
-                title="Export Colors Usage Report",
-                initialfile="Colors_Usage_Report.txt"
-            )
-
-            if file_path:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(report_text)
-
-                messagebox.showinfo("Success", f"Report exported to:\n{file_path}", parent=self.window)
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to export report: {str(e)}", parent=self.window)
+# Backward-compatible alias for older imports.
+ColorsInUseWindow = ActiveColorsWindow
 

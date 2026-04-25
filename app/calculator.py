@@ -209,7 +209,12 @@ class ChemicalCalculator:
     def _indanthren_rs(total_percentage: float) -> List[Chemical]:
         """Indanthren RS: SODA CAUSTICA + IDRO RS + GLUCOSIO"""
         if total_percentage < 0.1:
-            return []  # لا توجد قيم للـ RS عندما تكون النسبة أقل من 0.1%
+            # نسبة صغيرة جداً: نستخدم أدنى قيم RS بدلاً من قائمة فارغة لتجنب غياب الكيماويات
+            return [
+                Chemical(code="31310", name="SODA CAUSTICA", quantity=15.0, unit="ml/l"),
+                Chemical(code="31180-RS", name="IDRO RS", quantity=4.0, unit="g/l"),
+                Chemical(code="31160", name="GLUCOSIO", quantity=4.0, unit="g/l")
+            ]
         elif 0.1 <= total_percentage < 0.5:
             return [
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=17.0, unit="ml/l"),
@@ -407,66 +412,60 @@ class ChemicalCalculator:
 
     @staticmethod
     def _calculate_reactivi_caldi(total_percentage: float) -> List[Chemical]:
-        """حساب كيماويات Reattivi Caldi"""
-        if 0.001 <= total_percentage <= 0.5:
+        """حساب كيماويات Reattivi Caldi — نطاقات متصلة بدون فجوات"""
+        if total_percentage < 0.5:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=70.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=1.2, unit="ml/l")
             ]
-        elif 0.51 <= total_percentage <= 1:
+        elif total_percentage < 1.0:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=70.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=1.5, unit="ml/l")
             ]
-        elif 1.001 <= total_percentage <= 1.5:
+        elif total_percentage < 1.5:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=70.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=1.5, unit="ml/l")
             ]
-        elif 1.51 <= total_percentage <= 2:
+        elif total_percentage < 2.0:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=70.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=1.8, unit="ml/l")
             ]
-        elif 2.001 <= total_percentage <= 2.5:
+        elif total_percentage < 2.5:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=90.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=1.6, unit="ml/l")
             ]
-        elif 2.51 <= total_percentage <= 3.2:
+        elif total_percentage < 3.2:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=90.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=1.8, unit="ml/l")
             ]
-        elif 3.21 <= total_percentage <= 3.5:
+        elif total_percentage < 3.5:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=90.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=2.1, unit="ml/l")
             ]
-        elif 3.51 <= total_percentage <= 4.5:
+        elif total_percentage < 4.5:
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=90.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=2.4, unit="ml/l")
             ]
-        elif 4.51 <= total_percentage <= 100:
+        else:  # >= 4.5
             return [
                 Chemical(code="31360", name="SOLFATO SODICO", quantity=110.0, unit="g/l"),
                 Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
                 Chemical(code="31310", name="SODA CAUSTICA", quantity=3.0, unit="ml/l")
-            ]
-        else:
-            return [
-                Chemical(code="31360", name="SOLFATO SODICO", quantity=70.0, unit="g/l"),
-                Chemical(code="31330", name="SODIO CARBONATO", quantity=6.0, unit="g/l"),
-                Chemical(code="31310", name="SODA CAUSTICA", quantity=1.2, unit="ml/l")
             ]
 
     @staticmethod

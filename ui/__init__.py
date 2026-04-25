@@ -7,6 +7,7 @@ broken module does not block the rest of the child windows.
 from importlib import import_module
 
 __all__ = [
+    "ActiveColorsWindow",
     "ColorsInUseWindow",
     "RecipeCreatorWindow",
     "SavedRecipesWindow",
@@ -14,7 +15,8 @@ __all__ = [
 
 
 _LAZY_EXPORTS = {
-    "ColorsInUseWindow": "ui.colors_in_use_window",
+    "ActiveColorsWindow": "ui.active_colors_window",
+    "ColorsInUseWindow": "ui.active_colors_window",
     "RecipeCreatorWindow": "ui.recipe_creator_window",
     "SavedRecipesWindow": "ui.saved_recipes_window",
 }

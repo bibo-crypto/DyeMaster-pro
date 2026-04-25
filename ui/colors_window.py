@@ -9,8 +9,10 @@ from typing import Optional, Dict
 
 from app.models import Color
 from app.database import DatabaseManager
+from app.session import SessionManager
 from app.config import DYE_TYPES
-from app.utils import parse_percentage_input, parse_number_input
+from app.utils import parse_percentage_input, parse_number_input, normalize_dye_type_label
+from ui.theme_tokens import get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style
 
 
 def _show_on_top(window, parent):
@@ -29,7 +31,8 @@ class ColorsWindow:
     """نافذة إدارة الألوان"""
 
     def __init__(self, parent, db: DatabaseManager, color_code: Optional[str] = None,
-                 callback: Optional[callable] = None, initial_data: Optional[Dict] = None):
+                 callback: Optional[callable] = None, initial_data: Optional[Dict] = None,
+                 dark_mode: bool = False):
         """
         تهيئة نافذة الألوان
 
@@ -39,12 +42,15 @@ class ColorsWindow:
             color_code: كود اللون للتعديل (إذا كان None -> إضافة جديد)
             callback: دالة للاستدعاء بعد الحفظ
             initial_data: بيانات أولية لتعبئة الحقول عند إضافة لون جديد
+            dark_mode: وضع الألوان الداكنة
         """
         self.parent = parent
         self.db = db
+        self.session = SessionManager.get_session()
         self.color_code = color_code
         self.callback = callback
         self.is_new_color = color_code is None
+        self.dark_mode = dark_mode
 
         self.window = tk.Toplevel(parent)
         _show_on_top(self.window, parent)
@@ -58,16 +64,16 @@ class ColorsWindow:
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         width = int(screen_width * 0.8)
-        height = int(screen_height * 0.8)
+        height = int(screen_height * 0.84)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
         self.window.geometry(f"{width}x{height}+{x}+{y}")
-        self.window.configure(bg="#f0f0f0")
+        self.window.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
         
         # السماح بالتكبير والتصغير وإظهار أزرار التحكم
         self.window.resizable(True, True)
-        self.window.minsize(900, 580)
+        self.window.minsize(900, 640)
 
         # متغيرات الحقول
         self.code_var = tk.StringVar()
@@ -96,13 +102,9 @@ class ColorsWindow:
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
         style = ttk.Style(self.window)
-        style.configure('Sub.TButton',
-                        font=('Arial', 10, 'bold'),
-                        padding=6,
-                        background='#3498DB',
-                        foreground='white')
-        style.map('Sub.TButton',
-                  background=[('active', '#2980B9')])
+        palette = get_theme_tokens(self.dark_mode)
+        apply_excel_treeview_style(style, palette, self.dark_mode)
+        configure_sub_button_style(style, 'Sub.TButton', palette)
 
 
     def setup_ui(self):
@@ -200,7 +202,7 @@ class ColorsWindow:
 
         # أزرار التحكم
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(pady=10)
+        button_frame.pack(pady=6)
 
         # زر الحفظ
         save_text = "💾 Save Color" if self.is_new_color else "💾 Update Color"
@@ -214,13 +216,16 @@ class ColorsWindow:
 
         # زر الحذف (فقط للتعديل)
         if not self.is_new_color:
-            ttk.Button(
+            self.delete_color_button = ttk.Button(
                 button_frame,
                 text="Delete Color",
                 command=self.delete_color,
                 width=15,
                 style='Sub.TButton'
-            ).pack(side=tk.LEFT, padx=5)
+            )
+            self.delete_color_button.pack(side=tk.LEFT, padx=5)
+            if not self.session.has_permission("can_delete"):
+                self.delete_color_button.state(["disabled"])
 
         # زر الإلغاء
         ttk.Button(
@@ -355,7 +360,7 @@ class ColorsWindow:
             color_data = {
                 'code': self.color_code if not self.is_new_color else self.code_var.get().strip().upper(),
                 'name': self.name_var.get().strip(),
-                'dye_type': self.dye_type_var.get().strip(),
+                'dye_type': normalize_dye_type_label(self.dye_type_var.get().strip()),
                 'supplier': self.supplier_var.get().strip(),
                 'price_kg': parse_number_input(self.price_var.get().strip() or "0", default=0.0),
                 'resa_percent': parse_percentage_input(self.resa_var.get().strip() or "100")
@@ -380,73 +385,21 @@ class ColorsWindow:
                 except:
                     pass
 
-            # حفظ اللون في قاعدة البيانات
-            success = False
+            # إنشاء كائن Color
+            color = Color(
+                id=0 if self.is_new_color else getattr(self.db.get_color_by_code(color_data['code']), 'id', 0),
+                code=color_data['code'],
+                name=color_data['name'],
+                dye_type=color_data['dye_type'],
+                supplier=color_data['supplier'],
+                price_kg=color_data['price_kg'],
+                resa_percent=color_data['resa_percent']
+            )
 
-            # طريقة 1: استخدام save_color من DatabaseManager
-            if hasattr(self.db, 'save_color'):
-                color = Color(
-                    code=color_data['code'],
-                    name=color_data['name'],
-                    dye_type=color_data['dye_type'],
-                    supplier=color_data['supplier'],
-                    price_kg=color_data['price_kg'],
-                    resa_percent=color_data['resa_percent']
-                )
-                success = self.db.save_color(color)
-
-            # طريقة 2: استخدام التحديث المباشر
-            elif hasattr(self.db, 'execute_query'):
-                if self.is_new_color:
-                    query = """
-                    INSERT INTO colors (code, name, dye_type, supplier, price_kg, resa_percent, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-                    """
-                    params = (
-                        color_data['code'], color_data['name'], color_data['dye_type'],
-                        color_data['supplier'], color_data['price_kg'], color_data['resa_percent']
-                    )
-                else:
-                    query = """
-                    UPDATE colors 
-                    SET name = ?, dye_type = ?, supplier = ?, 
-                        price_kg = ?, resa_percent = ?, updated_at = datetime('now')
-                    WHERE code = ?
-                    """
-                    params = (
-                        color_data['name'], color_data['dye_type'], color_data['supplier'],
-                        color_data['price_kg'], color_data['resa_percent'], color_data['code']
-                    )
-
-                success = self.db.execute_query(query, params) is not None
-
-            # طريقة 3: الاتصال المباشر
+            if self.is_new_color:
+                success = self.db.add_color(color) > 0
             else:
-                conn = sqlite3.connect(self.db.db_file)
-                cursor = conn.cursor()
-
-                if self.is_new_color:
-                    cursor.execute("""
-                    INSERT INTO colors (code, name, dye_type, supplier, price_kg, resa_percent, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-                    """, (
-                        color_data['code'], color_data['name'], color_data['dye_type'],
-                        color_data['supplier'], color_data['price_kg'], color_data['resa_percent']
-                    ))
-                else:
-                    cursor.execute("""
-                    UPDATE colors 
-                    SET name = ?, dye_type = ?, supplier = ?, 
-                        price_kg = ?, resa_percent = ?, updated_at = datetime('now')
-                    WHERE code = ?
-                    """, (
-                        color_data['name'], color_data['dye_type'], color_data['supplier'],
-                        color_data['price_kg'], color_data['resa_percent'], color_data['code']
-                    ))
-
-                conn.commit()
-                conn.close()
-                success = True
+                success = self.db.update_color(color)
 
             if success:
                 message = "Color added successfully!" if self.is_new_color else "Color updated successfully!"
@@ -472,6 +425,9 @@ class ColorsWindow:
         """
         Handles color deletion with options for colors used in recipes.
         """
+        if not self.session.has_permission("can_delete"):
+            messagebox.showwarning("Permission Denied", "You do not have permission to delete colors.", parent=self.window)
+            return
         if not self.color_code:
             return
 
@@ -514,7 +470,7 @@ class ColorsWindow:
             # Delete all recipes using this color, then delete the color
             self._delete_recipes_and_color(recipes_using_color)
         elif result == "manage_manually":
-            # Open ColorsInUseWindow for manual management
+            # Open ActiveColorsWindow for manual management
             self._open_colors_in_use_window()
 
     def _show_deletion_options_dialog(self, message, num_recipes):
@@ -602,14 +558,14 @@ class ColorsWindow:
             messagebox.showerror("Error", f"Failed to delete recipes and color: {str(e)}", parent=self.window)
 
     def _open_colors_in_use_window(self):
-        """Open ColorsInUseWindow for manual management."""
+        """Open ActiveColorsWindow for manual management."""
         try:
-            from ui.colors_in_use_window import ColorsInUseWindow
-            ColorsInUseWindow(self.parent, self.db, initial_search_code=self.color_code)
+            from ui.active_colors_window import ActiveColorsWindow
+            ActiveColorsWindow(self.parent, self.db, initial_search_code=self.color_code)
         except ImportError:
-            messagebox.showerror("Error", "Could not import the 'Colors in Use' window component.", parent=self.window)
+            messagebox.showerror("Error", "Could not import the 'Active Colors' window component.", parent=self.window)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to open 'Colors in Use' window: {str(e)}", parent=self.window)
+            messagebox.showerror("Error", f"Failed to open 'Active Colors' window: {str(e)}", parent=self.window)
 
     def _confirm_and_delete_color(self):
         """Confirm and delete a color that's not in use."""

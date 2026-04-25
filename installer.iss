@@ -30,72 +30,22 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional icons:"
 
 [Files]
-; Copy the FULL PyInstaller onedir output, including _internal.
+; Copy the full PyInstaller onedir output including _internal
 Source: "{#MyDistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Optional: bundle VC++ redistributable next to this script and include it.
-; Download and place next to installer.iss as: vc_redist.x64.exe
+; Optional: bundle VC++ redistributable (place vc_redist.x64.exe next to installer.iss)
 Source: "{#ProjectRoot}vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; Install VC++ runtime if bundled.
+; Install VC++ runtime if bundled
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
-    Flags: runhidden waituntilterminated skipifsilent; Check: FileExists(ExpandConstant('{tmp}\vc_redist.x64.exe'))
+    Flags: runhidden waituntilterminated skipifsilent; \
+    Check: FileExists(ExpandConstant('{tmp}\vc_redist.x64.exe'))
 
-; Launch app after install.
-; Note: The app has single-instance protection to prevent database conflicts.
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
-
-[Code]
-var
-  SerialPage: TInputQueryWizardPage;
-  CustomerSerial: String;
-
-procedure InitializeWizard;
-begin
-  CustomerSerial := Trim(ExpandConstant('{param:SERIAL|}'));
-  SerialPage :=
-    CreateInputQueryPage(
-      wpSelectTasks,
-      'Activation Serial',
-      'Enter your activation serial code',
-      'Paste the serial from customer_serials.txt exactly as received. Example format: xxxxx.yyyyy'
-    );
-  SerialPage.Add('Serial Code:', False);
-  if CustomerSerial <> '' then
-    SerialPage.Values[0] := CustomerSerial;
-end;
-
-function NextButtonClick(CurPageID: Integer): Boolean;
-begin
-  Result := True;
-  if CurPageID = SerialPage.ID then
-  begin
-    if Trim(CustomerSerial) = '' then
-      CustomerSerial := Trim(SerialPage.Values[0]);
-    if CustomerSerial = '' then
-    begin
-      MsgBox('Please paste your activation serial code to continue.', mbError, MB_OK);
-      Result := False;
-    end;
-  end;
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  LicenseDir: String;
-  SerialFile: String;
-begin
-  if CurStep = ssInstall then
-  begin
-    LicenseDir := ExpandConstant('{localappdata}\DyeMasterPro\license');
-    SerialFile := LicenseDir + '\serial.txt';
-    if not DirExists(LicenseDir) then
-      ForceDirectories(LicenseDir);
-    SaveStringToFile(SerialFile, CustomerSerial, False);
-  end;
-end;
+; Launch app after install
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; \
+    Flags: nowait postinstall skipifsilent

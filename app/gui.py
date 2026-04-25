@@ -1,4 +1,4 @@
-﻿"""
+"""
 الواجهة الرئيسية
 """
 import tkinter as tk
@@ -10,12 +10,20 @@ import sqlite3
 
 from app.config import DYE_TYPES
 from app.database import DatabaseManager
-from app.utils import format_currency, format_percentage, clean_color_code, get_current_timestamp
+from app.utils import (
+    format_currency,
+    format_percentage,
+    clean_color_code,
+    get_current_timestamp,
+    normalize_dye_type_label,
+)
 from app.models import Color
 from app.updater import AppUpdater
 from app.tester import run_tests_from_gui
-import logging
-from ui.theme_tokens import BASE_FONT, BOLD_FONT, get_theme_tokens
+from app.session import SessionManager
+from ui.theme_tokens import (get_theme_tokens,
+                             setup_tree_tags, zebra_insert,
+                             apply_global_styles, configure_all_button_styles)
 
 
 class DyeMasterProGUI:
@@ -24,7 +32,7 @@ class DyeMasterProGUI:
     def __init__(self, root):
         """تهيئة الواجهة"""
         self.root = root
-        self.logger = logging.getLogger(self.__class__.__name__)
+        # Original print state - no logger
         
         # إضافة رقم الإصدار لعنوان النافذة
         from app.config import APP_VERSION
@@ -34,16 +42,15 @@ class DyeMasterProGUI:
         try:
             if os.path.exists("icon.ico"):
                 self.root.iconbitmap("icon.ico")
-        except:
-            pass
+        except Exception as e:
+            print(f"Icon load failed (normal): {e}")
             
         self.root.after(1, lambda: self.root.state('zoomed'))
         
-        # Disable silent auto-update checks on startup to avoid background relaunch behavior.
-        # Users can still check updates manually from the menu.
-        # Silent auto-update check disabled - only enable via "Test Update" button
-        # self.root.after(1000, self.check_for_updates_silent)
+        # Silent update check on startup: ask user to update only when a new version exists.
+        self.root.after(1400, self.check_for_updates_silent)
 
+        # ✅ إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير معرف
         # ✅ إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير معرف
         try:
             # جلب الإعداد من config إذا كان موجوداً
@@ -57,6 +64,7 @@ class DyeMasterProGUI:
 
         # إدارة قاعدة البيانات
         self.db = DatabaseManager()
+        self.session = SessionManager.get_session()
         
         # نظام التحديث
         self.updater = AppUpdater(current_version=APP_VERSION)
@@ -69,6 +77,8 @@ class DyeMasterProGUI:
         self._default_resa_value = "100"
         self._auto_resa_enabled = True
         self._refresh_after_child_job = None
+        self._focus_refresh_job = None
+        self._suppress_table_select = False
 
         # تحسين المظهر العام
         self.style = ttk.Style()
@@ -80,22 +90,186 @@ class DyeMasterProGUI:
 
         # تحميل البيانات
         self.load_data()
+        self.root.bind("<FocusIn>", self._on_root_focus_in, add="+")
 
         # نسخ احتياطي يومي عند التشغيل (مرة واحدة فقط يومياً)
-        try:
-            daily_path = self.db.backup_database(once_per_day=True)
-            if daily_path:
-                print(f"[+] Daily startup backup created: {daily_path}")
-            else:
-                print("[=] Daily startup backup skipped (already created today).")
-        except Exception as e:
-            print(f"[-] Daily startup backup failed: {str(e)}")
+        # نسخ احتياطي يومي عند التشغيل (مرة واحدة فقط يومياً)
+        if self._has_permission("can_backup"):
+            try:
+                daily_path = self.db.backup_database(once_per_day=True)
+                if daily_path:
+                    print(f"[+] Daily startup backup created: {daily_path}")
+                else:
+                    print("[=] Daily startup backup skipped (already created today).")
+            except Exception as e:
+                print(f"[-] Daily startup backup failed: {str(e)}")
 
         # ربط حدث إغلاق البرنامج بدالة النسخ الاحتياطي التلقائي
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def _has_permission(self, permission: str) -> bool:
+        return self.session.has_permission(permission)
+
+    def _deny_permission(self, action_text: str):
+        messagebox.showwarning("Permission Denied", f"You do not have permission to {action_text}.")
+
+    def _on_root_focus_in(self, _event=None):
+        """Refresh when focus returns to main window (throttled)."""
+        if _event is not None and getattr(_event, "widget", None) is not self.root:
+            return
+        if self._get_active_child_window() is not None:
+            return
+        try:
+            if self._focus_refresh_job is not None:
+                self.root.after_cancel(self._focus_refresh_job)
+        except Exception:
+            pass
+        self._focus_refresh_job = self.root.after(120, self._refresh_data_on_focus)
+
+    def _refresh_data_on_focus(self):
+        try:
+            has_filters = any((
+                self.search_entry.get().strip(),
+                self.search_type_combo.get().strip(),
+                self.search_supplier_entry.get().strip(),
+            ))
+            if has_filters:
+                self.search_colors()
+            else:
+                self.load_data()
+        except Exception:
+            pass
+        finally:
+            self._focus_refresh_job = None
+
+    def _sync_permissions_ui(self):
+        """Apply current role permissions to toolbar/menu widgets."""
+        try:
+            if hasattr(self, "import_data_btn"):
+                if self._has_permission("can_import_data"):
+                    self.import_data_btn.state(["!disabled"])
+                else:
+                    self.import_data_btn.state(["disabled"])
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "backup_db_btn"):
+                if self._has_permission("can_backup"):
+                    self.backup_db_btn.state(["!disabled"])
+                else:
+                    self.backup_db_btn.state(["disabled"])
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "delete_color_btn"):
+                if self._has_permission("can_delete"):
+                    self.delete_color_btn.state(["!disabled"])
+                else:
+                    self.delete_color_btn.state(["disabled"])
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "add_color_btn"):
+                if self._has_permission("can_add"):
+                    self.add_color_btn.state(["!disabled"])
+                else:
+                    self.add_color_btn.state(["disabled"])
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "modify_color_btn"):
+                if self.session.get_current_role() == "viewer":
+                    self.modify_color_btn.state(["disabled"])
+                else:
+                    self.modify_color_btn.state(["!disabled"])
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "create_recipe_btn"):
+                if self._has_permission("can_add"):
+                    self.create_recipe_btn.state(["!disabled"])
+                else:
+                    self.create_recipe_btn.state(["disabled"])
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "tools_menu"):
+                self.tools_menu.entryconfig(
+                    "Backup Database",
+                    state=tk.NORMAL if self._has_permission("can_backup") else tk.DISABLED
+                )
+                self.tools_menu.entryconfig(
+                    "Import Data",
+                    state=tk.NORMAL if self._has_permission("can_import_data") else tk.DISABLED
+                )
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "edit_menu"):
+                self.edit_menu.entryconfig(
+                    "Add Color",
+                    state=tk.NORMAL if self._has_permission("can_add") else tk.DISABLED
+                )
+                self.edit_menu.entryconfig(
+                    "Add Recipe",
+                    state=tk.NORMAL if self._has_permission("can_add") else tk.DISABLED
+                )
+        except Exception:
+            pass
+
+    def _close_all_child_windows(self):
+        for child_obj in list(self._child_windows.values()):
+            child_window = getattr(child_obj, "window", None)
+            if child_window and child_window.winfo_exists():
+                try:
+                    if self.root.grab_current() is child_window:
+                        child_window.grab_release()
+                except Exception:
+                    pass
+                try:
+                    child_window.destroy()
+                except Exception:
+                    pass
+        self._child_windows.clear()
+
+    def switch_user(self):
+        """Switch to another user without restarting the whole app."""
+        self._close_all_child_windows()
+        try:
+            if self.root.grab_current() is not None:
+                self.root.grab_release()
+        except Exception:
+            pass
+
+        switched = {"ok": False}
+        try:
+            from ui.login_window import LoginWindow
+
+            login_dialog = tk.Toplevel(self.root)
+            login_dialog.transient(self.root)
+            login_dialog.grab_set()
+
+            def _on_success():
+                switched["ok"] = True
+
+            LoginWindow(login_dialog, on_success_callback=_on_success)
+            self.root.wait_window(login_dialog)
+        except Exception as e:
+            messagebox.showerror("Switch User", f"Failed to open login window: {e}")
+            return
+
+        if switched["ok"]:
+            self.clear_fields()
+            self.load_data()
+            self._sync_permissions_ui()
+            current = self.session.current_user.username if self.session.current_user else "Unknown"
+            messagebox.showinfo("Switch User", f"Logged in as: {current}")
+
     def import_data(self):
         """استيراد البيانات"""
+        if not self._has_permission("can_import_data"):
+            self._deny_permission("import data")
+            return
         try:
             from app.config import BACKUP_DIR
 
@@ -150,7 +324,8 @@ class DyeMasterProGUI:
         # قائمة File
         file_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="File", menu=file_menu)
-
+        file_menu.add_command(label="Switch User", command=self.switch_user)
+        file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_closing, accelerator="Ctrl+Q")
 
         # ربط الاختصارات
@@ -159,41 +334,58 @@ class DyeMasterProGUI:
         # قائمة Edit
         edit_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="Edit", menu=edit_menu)
-        edit_menu.add_command(label="Add Color", command=self.show_add_color_form)
-        edit_menu.add_command(label="Add Recipe", command=self.show_add_recipe_form)
+        self.edit_menu = edit_menu
+        edit_menu.add_command(
+            label="Add Color",
+            command=self.show_add_color_form,
+            state=tk.NORMAL if self._has_permission("can_add") else tk.DISABLED
+        )
+        edit_menu.add_command(
+            label="Add Recipe",
+            command=self.show_add_recipe_form,
+            state=tk.NORMAL if self._has_permission("can_add") else tk.DISABLED
+        )
 
         # قائمة View
         view_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Colors", command=self.show_colors_page)
         view_menu.add_command(label="Recipes", command=self.show_recipes_page)
-        view_menu.add_command(label="Colors in Use", command=self.show_colors_in_use_page)
+        view_menu.add_command(label="Active Colors", command=self.show_colors_in_use_page)
 
         # قائمة Tools
         tools_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="Tools", menu=tools_menu)
-        tools_menu.add_command(label="Backup Database", command=self.backup_database)
-        tools_menu.add_command(label="Import Data", command=self.import_data)
-        tools_menu.add_command(label="Check for Updates", command=self.check_updates)
-        tools_menu.add_command(label="Test Update", command=self.test_update)
-        tools_menu.add_separator()
-        tools_menu.add_command(label="Run System Tests", command=self.run_system_tests)
-
+        self.tools_menu = tools_menu
+        tools_menu.add_command(
+            label="Backup Database",
+            command=self.backup_database,
+            state=tk.NORMAL if self._has_permission("can_backup") else tk.DISABLED
+        )
+        tools_menu.add_command(
+            label="Import Data",
+            command=self.import_data,
+            state=tk.NORMAL if self._has_permission("can_import_data") else tk.DISABLED
+        )
         # قائمة Help
         help_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="Show Device ID", command=self.show_device_id_dialog)
-        help_menu.add_separator()
         help_menu.add_command(label="About", command=self.show_about_dialog)
 
     def show_add_color_form(self):
         """عرض نموذج إضافة لون"""
+        if not self._has_permission("can_add"):
+            self._deny_permission("add colors")
+            return
         self.clear_fields()
         self._set_default_resa()
         messagebox.showinfo("Add Color", "Use the form below to add a new color")
 
     def show_add_recipe_form(self):
         """عرض نموذج إضافة وصفة"""
+        if not self._has_permission("can_add"):
+            self._deny_permission("create recipes")
+            return
         self.open_recipe_creator()
 
     def show_colors_page(self):
@@ -208,79 +400,43 @@ class DyeMasterProGUI:
         """عرض صفحة الألوان المستخدمة"""
         self.open_colors_in_use()
 
-    def check_updates(self):
-        """التحقق من التحديثات"""
+    def check_for_updates_silent(self):
+        """تحقق صامت عند التشغيل: يظهر فقط عند وجود تحديث."""
+        if not self._has_permission("can_check_updates"):
+            return
         try:
             is_update, version, notes, download_info = self.updater.check_for_updates()
-            if is_update:
-                if messagebox.askyesno(
-                    "Update Available",
-                    f"New version {version} is available.\n\nNotes:\n{notes}\n\nInstall now?"
-                ):
-                    # Backup database before update starts
-                    backup_path = None
-                    try:
-                        backup_path = self.db.backup_database()
-                    except Exception as e:
-                        messagebox.showwarning("Backup Failed", f"Failed to create database backup before update: {e}")
+            if not is_update:
+                return
 
-                    success = self.updater.download_and_install(download_info, version, db_backup_path=backup_path)
-                    if success:
-                        messagebox.showinfo(
-                            "Update",
-                            "Update downloaded. The app will close now and restart with the new version."
-                        )
-                        self.root.after(200, self.root.destroy)
-            else:
-                messagebox.showinfo("Update", "You are using the latest version.")
-        except Exception as e:
-            messagebox.showerror("Update Error", f"Failed to check for updates: {str(e)}")
+            notes_text = (notes or "").strip() or "No release notes."
+            wants_update = messagebox.askyesno(
+                "Update Available",
+                f"A new version is available: v{version}\n\nRelease notes:\n{notes_text}\n\n"
+                "Do you want to update now?\n"
+                "Choose No to be reminded next time you open the app."
+            )
+            if not wants_update:
+                return
 
-    def test_update(self):
-        """Force test update flow using latest release payload."""
-        if not messagebox.askyesno(
-            "Test Update",
-            "This will force-download the latest release and restart the app.\n\nContinue?"
-        ):
-            return
-
-        is_available, version, notes, download_info = self.updater.get_latest_release()
-        if not is_available:
-            messagebox.showerror("Test Update", "Could not fetch latest release info from GitHub.")
-            return
-
-        if messagebox.askyesno(
-            "Test Update Ready",
-            f"Latest release: v{version}\n\nNotes:\n{notes}\n\nInstall now?"
-        ):
             backup_path = None
             try:
                 backup_path = self.db.backup_database()
             except Exception as e:
                 messagebox.showwarning("Backup Failed", f"Failed to create database backup before update: {e}")
 
-            success = self.updater.download_and_install(download_info, version, db_backup_path=backup_path)
+            success = self.updater.download_and_install(
+                download_info,
+                version,
+                parent_window=self.root,
+                db_backup_path=backup_path,
+            )
             if success:
                 messagebox.showinfo(
-                    "Test Update",
-                    "Update downloaded. The app will close now and relaunch the new version."
+                    "Update",
+                    "Update downloaded. The app will close now and restart with the new version."
                 )
                 self.root.after(200, self.root.destroy)
-
-    def check_for_updates_silent(self):
-        """التحقق من وجود تحديثات تلقائياً عند بدء التشغيل"""
-        try:
-            print("Checking for updates...")
-            is_update, version, notes, download_info = self.updater.check_for_updates()
-            print(f"Update available: {is_update}, version: {version}")
-            if is_update:
-                print("Update found, showing dialog...")
-                if messagebox.askyesno("Update Available", f"A new update is available: v{version}\n\nWould you like to download and install it automatically?"):
-                    print("User accepted update, downloading...")
-                    success = self.updater.download_and_install(download_info, version)
-                    print(f"Update success: {success}")
-                    if success:
-                        self.root.after(200, self.root.destroy)
         except Exception as e:
             print(f"Silent update check failed: {e}")
 
@@ -299,50 +455,6 @@ Developer: Bibo Marcos
 """
         messagebox.showinfo("About", about_text)
 
-    def show_device_id_dialog(self):
-        """Show and copy current device ID used for activation."""
-        try:
-            from app.licensing import get_device_id
-            device_id = get_device_id()
-
-            dlg = tk.Toplevel(self.root)
-            dlg.title("Device ID")
-            dlg.geometry("520x170")
-            dlg.resizable(False, False)
-            dlg.transient(self.root)
-            dlg.grab_set()
-            dlg.lift()
-            dlg.focus_force()
-            dlg.attributes("-topmost", True)
-            dlg.after(250, lambda: dlg.attributes("-topmost", False))
-
-            frame = ttk.Frame(dlg, padding=12)
-            frame.pack(fill=tk.BOTH, expand=True)
-
-            ttk.Label(
-                frame,
-                text="Send this Device ID to support to receive your activation serial:",
-                wraplength=480
-            ).pack(anchor="w", pady=(0, 8))
-
-            id_var = tk.StringVar(value=device_id)
-            entry = ttk.Entry(frame, textvariable=id_var, state="readonly", width=62)
-            entry.pack(fill=tk.X, pady=(0, 10))
-            entry.selection_range(0, tk.END)
-
-            btn_row = ttk.Frame(frame)
-            btn_row.pack(fill=tk.X)
-
-            def _copy():
-                self.root.clipboard_clear()
-                self.root.clipboard_append(device_id)
-                messagebox.showinfo("Device ID", "Device ID copied.", parent=dlg)
-
-            ttk.Button(btn_row, text="Copy Device ID", command=_copy).pack(side=tk.LEFT)
-            ttk.Button(btn_row, text="Close", command=dlg.destroy).pack(side=tk.RIGHT)
-        except Exception as e:
-            messagebox.showerror("Device ID", f"Could not get Device ID: {e}")
-
     def toggle_dark_mode(self):
         """Toggle between dark and light mode."""
         self.dark_mode = not self.dark_mode
@@ -356,104 +468,40 @@ Developer: Bibo Marcos
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
         palette = get_theme_tokens(self.dark_mode)
-        self.bg_color = palette["bg"]
-        self.fg_color = palette["fg"]
-        self.frame_bg = palette["frame_bg"]
-        self.entry_bg = palette["entry_bg"]
-        self.button_bg = palette["button_bg"]
-        self.button_fg = palette["button_fg"]
-        self.button_active_bg = palette["button_active_bg"]
-        self.accent_button_bg = palette["accent_bg"]
+        self.bg_color            = palette["bg"]
+        self.fg_color            = palette["fg"]
+        self.frame_bg            = palette["frame_bg"]
+        self.entry_bg            = palette["entry_bg"]
+        self.button_bg           = palette["button_bg"]
+        self.button_fg           = palette["button_fg"]
+        self.button_active_bg    = palette["button_active_bg"]
+        self.accent_button_bg    = palette["accent_bg"]
         self.accent_button_active_bg = palette["accent_active_bg"]
-        self.header_bg = palette["header_bg"]
-        self.tree_bg = palette["tree_bg"]
-        self.tree_fg = palette["tree_fg"]
-        self.tree_selected_bg = palette["tree_selected_bg"]
+        self.header_bg           = palette["header_bg"]
+        self.tree_bg             = palette["tree_bg"]
+        self.tree_fg             = palette["tree_fg"]
+        self.tree_selected_bg    = palette["tree_selected_bg"]
 
-        # Update root background
+        # Root background
         self.root.configure(bg=self.bg_color)
-        
-        # --- Base Styles ---
-        self.style.configure('TFrame', background=self.frame_bg)
-        self.style.configure('TLabel', background=self.frame_bg, foreground=self.fg_color, font=BASE_FONT)
-        self.style.configure('TLabelframe', background=self.frame_bg)
-        self.style.configure('TLabelframe.Label', background=self.frame_bg, foreground=self.fg_color, font=BOLD_FONT)
 
-        # --- Entry and Combobox ---
-        self.style.configure('TEntry', fieldbackground=self.entry_bg, foreground=self.fg_color, insertcolor=self.fg_color)
-        self.style.map('TCombobox',
-                       fieldbackground=[('readonly', self.entry_bg)],
-                       selectbackground=[('readonly', self.entry_bg)],
-                       selectforeground=[('readonly', self.fg_color)],
-                       background=[('readonly', self.entry_bg)])
-        self.style.configure('TCombobox', foreground=self.fg_color)
+        # ── Apply all shared styles (frames, entries, treeview, notebook…) ──
+        apply_global_styles(self.style, palette, self.dark_mode)
 
+        # ── Apply all named button styles ──────────────────────────────────
+        configure_all_button_styles(self.style, palette)
 
-        # --- General App Button Style ---
-        self.style.configure('App.TButton',
-                             font=BASE_FONT,
-                             padding=5,
-                             background=self.button_bg,
-                             foreground=self.button_fg)
-        self.style.map('App.TButton',
-                       background=[('active', self.button_active_bg), ('disabled', self.frame_bg)])
+        # Re-apply row tags on the main treeview after theme switch
+        if hasattr(self, 'colors_table'):
+            setup_tree_tags(self.colors_table, self.dark_mode)
 
-        # --- Treeview Style ---
-        self.style.configure('Treeview',
-                             background=self.tree_bg,
-                             foreground=self.tree_fg,
-                             fieldbackground=self.tree_bg,
-                             font=BASE_FONT,
-                             rowheight=25)
-        self.style.map('Treeview',
-                       background=[('selected', self.tree_selected_bg)],
-                       foreground=[('selected', self.button_fg)])
-        self.style.configure('Treeview.Heading', font=BOLD_FONT, background=self.header_bg, foreground=self.fg_color)
-        self.style.map('Treeview.Heading',
-                       background=[('active', self.button_active_bg)])
-
-
-        # --- Special Buttons (keeping user's preference) ---
-
-        # نمط زر Import مميز (أخضر) - Unchanged
-        self.style.configure('Import.TButton',
-                             font=BOLD_FONT,
-                             foreground='white',
-                             background='#27AE60',
-                             padding=6)
-        self.style.map('Import.TButton',
-                       background=[('active', '#1E8449')])
-        
-        # نمط زر Test
-        self.style.configure('Test.TButton',
-                             font=BOLD_FONT,
-                             foreground='white',
-                             background='#FF5722',
-                             padding=6)
-        self.style.map('Test.TButton',
-                       background=[('active', '#D84315')])
-
-        # Data buttons (Backup/Import)
-        self.style.configure('Data.TButton',
-                             font=BOLD_FONT,
-                             foreground='white',
-                             background='#2F7D8C',
-                             padding=6)
-        self.style.map('Data.TButton',
-                       background=[('active', '#266773')])
-
-        # نمط زر Accent - I'll keep it but it's not used
-        self.style.configure('Accent.TButton',
-                             font=BOLD_FONT,
-                             foreground='white',
-                             background=self.accent_button_bg,
-                             padding=6)
-        self.style.map('Accent.TButton',
-                       background=[('active', self.accent_button_active_bg)])
-
+        # Status bar
         if hasattr(self, "status_bar"):
             try:
-                self.status_bar.configure(bg=self.header_bg, fg=self.fg_color)
+                self.status_bar.configure(
+                    bg=palette["statusbar_bg"],
+                    fg=self.fg_color
+                )
             except Exception:
                 pass
 
@@ -481,6 +529,7 @@ Developer: Bibo Marcos
         
         # إنشاء شريط القوائم
         self.create_menu_bar()
+        self._sync_permissions_ui()
 
     def setup_toolbar(self):
         """إعداد شريط الأدوات"""
@@ -488,23 +537,33 @@ Developer: Bibo Marcos
         toolbar_frame.pack(fill=tk.X, pady=5)
 
         # الإطار الأول: أزرار التطبيق الرئيسية
-        frame1 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1, padding=(8, 6))
+        frame1 = ttk.Frame(toolbar_frame, relief="raised", borderwidth=2, padding=(10, 6))
         frame1.pack(side=tk.LEFT, padx=5, pady=4)
 
-        ttk.Button(frame1, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        self.create_recipe_btn = ttk.Button(frame1, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton")
+        self.create_recipe_btn.pack(side=tk.LEFT, padx=6, pady=2)
         ttk.Button(frame1, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
-        ttk.Button(frame1, text="🎨 Colors in Use", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        ttk.Button(frame1, text="🎨 Active Colors", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
         ttk.Button(frame1, text="📄 Import PDF", command=self.open_pdf_import, style='Import.TButton').pack(side=tk.LEFT, padx=6, pady=2)
 
         # الإطار الثاني: أزرار البيانات والتحديث (على اليسار مع مسافة)
-        frame2 = ttk.Frame(toolbar_frame, relief="groove", borderwidth=1, padding=(8, 6))
+        frame2 = ttk.Frame(toolbar_frame, relief="raised", borderwidth=2, padding=(10, 6))
         frame2.pack(side=tk.LEFT, padx=(20, 5), pady=4)
 
-        ttk.Button(frame2, text="⬇ Import Data", command=self.import_data, style="Data.TButton").pack(side=tk.LEFT, padx=6, pady=2)
-        ttk.Button(frame2, text="🗄 Backup DB", command=self.backup_database, style="Data.TButton").pack(side=tk.LEFT, padx=6, pady=2)
-        ttk.Button(frame2, text="⬆ CHECK UPDATE", command=self.test_update, style="Test.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        self.import_data_btn = ttk.Button(frame2, text="⬇ Import Data", command=self.import_data, style="Data.TButton")
+        self.import_data_btn.pack(side=tk.LEFT, padx=6, pady=2)
+        self.backup_db_btn = ttk.Button(frame2, text="🗄 Backup DB", command=self.backup_database, style="Data.TButton")
+        self.backup_db_btn.pack(side=tk.LEFT, padx=6, pady=2)
+        if not self._has_permission("can_import_data"):
+            self.import_data_btn.state(["disabled"])
+        if not self._has_permission("can_backup"):
+            self.backup_db_btn.state(["disabled"])
+        if not self._has_permission("can_add"):
+            self.create_recipe_btn.state(["disabled"])
 
-        self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙 Dark", command=self.toggle_dark_mode, width=10)
+        self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙 Dark",
+                                           command=self.toggle_dark_mode,
+                                           style="Toggle.TButton", width=10)
         self.dark_mode_button.pack(side=tk.RIGHT, padx=(0, 5))
 
 
@@ -514,7 +573,7 @@ Developer: Bibo Marcos
             from ui.pdf_import_window import PDFImportWindow
             self._open_single_child_window(
                 "pdf_import",
-                lambda: PDFImportWindow(self.root, self.db)
+                lambda: PDFImportWindow(self.root, self.db, dark_mode=self.dark_mode)
             )
         except Exception as e:
             messagebox.showerror("Error", f"Cannot open PDF import: {str(e)}")
@@ -543,10 +602,10 @@ Developer: Bibo Marcos
             try:
                 if grab_widget.winfo_exists():
                     return
-            except Exception:
+            except tk.TclError:
                 pass
             self.root.grab_release()
-        except Exception:
+        except tk.TclError:
             pass
 
     def _bring_child_to_front(self, child_window):
@@ -559,7 +618,7 @@ Developer: Bibo Marcos
             # focus_set is less aggressive than focus_force and avoids some
             # first-open flicker/close behavior on Windows.
             child_window.focus_set()
-        except Exception:
+        except tk.TclError:
             pass
 
     def _ensure_modal_grab(self, child_window):
@@ -577,7 +636,7 @@ Developer: Bibo Marcos
             child_path = str(child_window)
             if current_path.startswith(f"{child_path}."):
                 return
-        except Exception:
+        except tk.TclError:
             pass
 
     def _open_single_child_window(self, key: str, factory):
@@ -616,6 +675,7 @@ Developer: Bibo Marcos
             """Auto-refresh main table/status after any child window closes."""
             try:
                 self.load_data()
+                self._sync_permissions_ui()
             except Exception:
                 pass
             finally:
@@ -741,10 +801,19 @@ Developer: Bibo Marcos
         control_frame = ttk.Frame(input_frame)
         control_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Button(control_frame, text="➕ Add Color", command=self.add_color, style="App.TButton").grid(row=0, column=0, padx=5)
-        ttk.Button(control_frame, text="✏ Modify Color", command=self.modify_color, style="App.TButton").grid(row=0, column=1, padx=5)
-        ttk.Button(control_frame, text="🗑 Delete Color", command=self.delete_color, style="App.TButton").grid(row=0, column=2, padx=5)
+        self.add_color_btn = ttk.Button(control_frame, text="➕ Add Color", command=self.add_color, style="App.TButton")
+        self.add_color_btn.grid(row=0, column=0, padx=5)
+        self.modify_color_btn = ttk.Button(control_frame, text="✏ Modify Color", command=self.modify_color, style="App.TButton")
+        self.modify_color_btn.grid(row=0, column=1, padx=5)
+        self.delete_color_btn = ttk.Button(control_frame, text="🗑 Delete Color", command=self.delete_color, style="App.TButton")
+        self.delete_color_btn.grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="🧹 Clear Fields", command=self.clear_fields, style="App.TButton").grid(row=0, column=3, padx=5)
+        if not self._has_permission("can_delete"):
+            self.delete_color_btn.state(["disabled"])
+        if not self._has_permission("can_add"):
+            self.add_color_btn.state(["disabled"])
+        if self.session.get_current_role() == "viewer":
+            self.modify_color_btn.state(["disabled"])
 
     def _bind_auto_resa_events(self):
         """إضافة القيمة الافتراضية RESA عند بدء إدخال بيانات لون جديد."""
@@ -816,6 +885,7 @@ Developer: Bibo Marcos
 
         self.colors_table.bind("<<TreeviewSelect>>", self.on_table_select)
         self.colors_table.bind("<Double-1>", self.on_double_click)
+        setup_tree_tags(self.colors_table, self.dark_mode)
 
     def setup_status_bar(self):
         """إعداد شريط الحالة"""
@@ -839,9 +909,17 @@ Developer: Bibo Marcos
             return True
         return value.isdigit() and len(value) <= 5
 
+    def _normalize_dye_type(self, dye_type: str) -> str:
+        """Normalize dye-type labels for robust filtering."""
+        return " ".join(normalize_dye_type_label(dye_type).strip().lower().split())
+
     def load_data(self):
         """تحميل البيانات"""
         try:
+            selected_code = None
+            selected_rows = self.colors_table.selection()
+            if selected_rows:
+                selected_code = str(self.colors_table.item(selected_rows[0], "values")[0]).strip()
             for row in self.colors_table.get_children():
                 self.colors_table.delete(row)
 
@@ -852,7 +930,7 @@ Developer: Bibo Marcos
             for color in colors:
                 recipes_using = self.db.get_recipes_using_color(color.code)
                 status = "Active" if recipes_using else ""
-                self.colors_table.insert("", tk.END, values=(
+                zebra_insert(self.colors_table, (
                     color.code,
                     color.name,
                     color.dye_type,
@@ -865,6 +943,16 @@ Developer: Bibo Marcos
                 ))
 
             self.status_bar.config(text=f"Loaded {len(colors)} colors")
+            if selected_code:
+                for row in self.colors_table.get_children():
+                    values = self.colors_table.item(row, "values")
+                    if values and str(values[0]).strip() == selected_code:
+                        self._suppress_table_select = True
+                        self.colors_table.selection_set(row)
+                        self.colors_table.focus(row)
+                        self.colors_table.see(row)
+                        self.root.after(0, lambda: setattr(self, '_suppress_table_select', False))
+                        break
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load data: {str(e)}")
@@ -891,8 +979,11 @@ Developer: Bibo Marcos
                         continue
 
                 # فلترة حسب نوع الصباغة
-                if dye_type and color.dye_type != dye_type:
-                    continue
+                if dye_type:
+                    selected_type = self._normalize_dye_type(dye_type)
+                    row_type = self._normalize_dye_type(color.dye_type)
+                    if row_type != selected_type:
+                        continue
 
                 # فلترة حسب المورد
                 if supplier and supplier.lower() not in str(color.supplier).lower():
@@ -908,7 +999,7 @@ Developer: Bibo Marcos
             for color in filtered_colors:
                 recipes_using = self.db.get_recipes_using_color(color.code)
                 status = "Active" if recipes_using else ""
-                self.colors_table.insert("", tk.END, values=(
+                zebra_insert(self.colors_table, (
                     color.code,
                     color.name,
                     color.dye_type,
@@ -952,10 +1043,13 @@ Developer: Bibo Marcos
 
     def add_color(self):
         """إضافة لون جديد"""
+        if not self._has_permission("can_add"):
+            self._deny_permission("add colors")
+            return
         try:
             code = self.code_entry.get().strip()
             name = self.name_entry.get().strip()
-            dye_type = self.type_combo.get()
+            dye_type = normalize_dye_type_label(self.type_combo.get())
             supplier = self.supplier_entry.get().strip()
 
             # التحقق من الحقول المطلوبة
@@ -984,21 +1078,22 @@ Developer: Bibo Marcos
                     messagebox.showerror("Error", f"Color code '{cleaned_code}' already exists!")
                     return
 
-            # الاتصال المباشر بقاعدة البيانات
+            # إضافة اللون عبر DatabaseManager (يضمن invalidate الـ cache تلقائياً)
             try:
-                conn = self.db.get_connection()
-                cursor = conn.cursor()
-
-                # استخدام datetime('now') مباشرة
-                cursor.execute('''
-                               INSERT INTO colors (code, name, dye_type, supplier, price_kg, resa_percent, created_at,
-                                                   updated_at)
-                               VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-                               ''', (cleaned_code, name, dye_type, supplier, price_kg, resa_percent))
-
-                color_id = cursor.lastrowid
-                conn.commit()
-                conn.close()
+                from app.models import Color
+                from app.utils import get_current_timestamp
+                new_color = Color(
+                    id=0,
+                    code=cleaned_code,
+                    name=name,
+                    dye_type=dye_type,
+                    supplier=supplier,
+                    price_kg=price_kg,
+                    resa_percent=resa_percent,
+                    created_at=get_current_timestamp(),
+                    updated_at=get_current_timestamp()
+                )
+                color_id = self.db.add_color(new_color)
 
                 self.load_data()
                 self.clear_fields()
@@ -1009,8 +1104,6 @@ Developer: Bibo Marcos
                 else:
                     messagebox.showinfo("Success", f"Color added successfully! ID: {color_id}")
 
-            except sqlite3.IntegrityError as e:
-                messagebox.showerror("Error", f"Color code '{cleaned_code}' already exists in database")
             except Exception as db_error:
                 messagebox.showerror("Error", f"Database error: {str(db_error)}")
 
@@ -1021,6 +1114,9 @@ Developer: Bibo Marcos
         """
         Prevents deletion of a selected color if it is in use.
         """
+        if not self._has_permission("can_delete"):
+            self._deny_permission("delete colors")
+            return
         selected_item = self.colors_table.selection()
         if not selected_item:
             messagebox.showwarning("Warning", "Please select a color to delete.")
@@ -1045,7 +1141,7 @@ Developer: Bibo Marcos
                 error_message = (
                     f"Forbidden: Color '{color_to_delete.code}' cannot be deleted.\n\n"
                     f"It is currently used in {len(recipes_using_color)} recipe(s). "
-                    "Please see 'Colors in Use' for details."
+                    "Please see 'Active Colors' for details."
                 )
                 messagebox.showerror("Deletion Forbidden", error_message)
                 return
@@ -1076,12 +1172,27 @@ Developer: Bibo Marcos
 
     def modify_color(self):
         """تعديل لون"""
+        if self.session.get_current_role() == "viewer":
+            self._deny_permission("modify colors")
+            return
         selected = self.colors_table.selection()
-        if not selected:
+        old_code = None
+        if selected:
+            old_code = clean_color_code(str(self.colors_table.item(selected[0], "values")[0]).strip())
+        else:
+            candidate_code = clean_color_code(self.code_entry.get().strip())
+            if candidate_code:
+                old_code = candidate_code
+                for row in self.colors_table.get_children():
+                    values = self.colors_table.item(row, "values")
+                    if values and clean_color_code(str(values[0])) == old_code:
+                        self.colors_table.selection_set(row)
+                        self.colors_table.focus(row)
+                        break
+
+        if not old_code:
             messagebox.showwarning("Warning", "Please select a color to modify")
             return
-
-        old_code = self.colors_table.item(selected[0], "values")[0]
 
         # التحقق مما إذا كان اللون مستخدماً
         try:
@@ -1105,12 +1216,12 @@ Developer: Bibo Marcos
             conn.close()
 
             if count > 0:
-                # إذا كان مستخدماً، إرسال المستخدم إلى Colors in Use
+                # إذا كان مستخدماً، إرسال المستخدم إلى Active Colors
                 response = messagebox.askyesno(
                     "Color Used in Recipes",
                     f"Color '{old_code}' is used in {count} recipe(s).\n\n"
-                    "You can only modify this color from the 'Colors in Use' window.\n"
-                    "Do you want to open 'Colors in Use' to modify this color?"
+                    "You can only modify this color from the 'Active Colors' window.\n"
+                    "Do you want to open 'Active Colors' to modify this color?"
                 )
 
                 if response:
@@ -1128,7 +1239,7 @@ Developer: Bibo Marcos
         try:
             new_code = self.code_entry.get().strip()
             name = self.name_entry.get().strip()
-            dye_type = self.type_combo.get()
+            dye_type = normalize_dye_type_label(self.type_combo.get())
             supplier = self.supplier_entry.get().strip()
 
             # التحقق من الحقول المطلوبة
@@ -1218,6 +1329,8 @@ Developer: Bibo Marcos
 
     def on_table_select(self, event):
         """عند تحديد عنصر من الجدول"""
+        if getattr(self, '_suppress_table_select', False):
+            return
         selected = self.colors_table.selection()
         if selected:
             values = self.colors_table.item(selected[0], "values")
@@ -1250,11 +1363,14 @@ Developer: Bibo Marcos
 
     def open_recipe_creator(self):
         """فتح نافذة إنشاء وصفة"""
+        if not self._has_permission("can_add"):
+            self._deny_permission("create recipes")
+            return
         try:
             from ui.recipe_creator_window import RecipeCreatorWindow
             self._open_single_child_window(
                 "recipe_creator",
-                lambda: RecipeCreatorWindow(self.root, self.db)
+                lambda: RecipeCreatorWindow(self.root, self.db, dark_mode=self.dark_mode)
             )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Recipe Creator: {str(e)}")
@@ -1265,7 +1381,7 @@ Developer: Bibo Marcos
             from ui.saved_recipes_window import SavedRecipesWindow
             self._open_single_child_window(
                 "saved_recipes",
-                lambda: SavedRecipesWindow(self.root, self.db, on_data_changed=self.load_data)
+                lambda: SavedRecipesWindow(self.root, self.db, on_data_changed=self.load_data, dark_mode=self.dark_mode)
             )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Saved Recipes window: {str(e)}")
@@ -1273,12 +1389,13 @@ Developer: Bibo Marcos
     def open_colors_in_use(self, initial_search_code: str = None):
         """فتح نافذة الألوان المستخدمة"""
         try:
-            from ui.colors_in_use_window import ColorsInUseWindow
+            from ui.active_colors_window import ActiveColorsWindow
             window_obj = self._open_single_child_window(
-                "colors_in_use",
-                lambda: ColorsInUseWindow(
+                "active_colors",
+                lambda: ActiveColorsWindow(
                     self.root,
                     self.db,
+                    dark_mode=self.dark_mode,
                     initial_search_code=initial_search_code,
                     on_data_changed=self.load_data
                 )
@@ -1294,10 +1411,13 @@ Developer: Bibo Marcos
                 except Exception:
                     pass
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to open Colors in Use window: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open Active Colors window: {str(e)}")
 
     def backup_database(self):
         """إنشاء نسخة احتياطية من قاعدة البيانات"""
+        if not self._has_permission("can_backup"):
+            self._deny_permission("create backups")
+            return
         try:
             from app.config import BACKUP_DIR
 
