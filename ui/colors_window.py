@@ -12,19 +12,10 @@ from app.database import DatabaseManager
 from app.session import SessionManager
 from app.config import DYE_TYPES
 from app.utils import parse_percentage_input, parse_number_input, normalize_dye_type_label
-from ui.theme_tokens import get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style
+from ui.theme_tokens import get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style, show_on_top
 
 
-def _show_on_top(window, parent):
-    """Make child windows modal and keep them above parent."""
-    try:
-        window.lift()
-        window.focus_force()
-        window.grab_set()
-        window.attributes("-topmost", True)
-        window.after(250, lambda: window.attributes("-topmost", False))
-    except Exception:
-        pass
+
 
 
 class ColorsWindow:
@@ -53,7 +44,7 @@ class ColorsWindow:
         self.dark_mode = dark_mode
 
         self.window = tk.Toplevel(parent)
-        _show_on_top(self.window, parent)
+        show_on_top(self.window, parent)
 
         if self.is_new_color:
             self.window.title("Add New Color - إضافة لون جديد")
@@ -82,6 +73,7 @@ class ColorsWindow:
         self.supplier_var = tk.StringVar()
         self.price_var = tk.StringVar()
         self.resa_var = tk.StringVar()
+        self.lotto_var = tk.StringVar()
 
         # تهيئة الأنماط
         self.configure_styles()
@@ -159,7 +151,7 @@ class ColorsWindow:
             row=2, column=0, sticky="e", padx=5, pady=8
         )
 
-        # ✅ إصلاح: استخدام DYE_TYPES الثابتة
+        # [OK] إصلاح: استخدام DYE_TYPES الثابتة
         self.dye_type_combo = ttk.Combobox(
             form_frame,
             textvariable=self.dye_type_var,
@@ -191,6 +183,13 @@ class ColorsWindow:
         self.resa_entry = ttk.Entry(form_frame, textvariable=self.resa_var, width=30)
         self.resa_entry.grid(row=5, column=1, padx=5, pady=8, sticky="w")
         self.resa_entry.insert(0, "100")
+
+        # Lotto
+        ttk.Label(form_frame, text="Lotto:").grid(
+            row=6, column=0, sticky="e", padx=5, pady=8
+        )
+        self.lotto_entry = ttk.Entry(form_frame, textvariable=self.lotto_var, width=30)
+        self.lotto_entry.grid(row=6, column=1, padx=5, pady=8, sticky="w")
 
         # معلومات إضافية (فقط للتعديل)
         if not self.is_new_color:
@@ -291,6 +290,13 @@ class ColorsWindow:
                 except (TypeError, ValueError):
                     resa_str = "100"
                 self.resa_var.set(resa_str)
+                # load current lotto
+                lotto_val = ''
+                try:
+                    lotto_val = str(row[7]) if len(row) > 7 and row[7] else ''
+                except Exception:
+                    pass
+                self.lotto_var.set(lotto_val)
 
                 # تحديث معلومات إضافية
                 if hasattr(self, 'info_label'):
@@ -363,7 +369,8 @@ class ColorsWindow:
                 'dye_type': normalize_dye_type_label(self.dye_type_var.get().strip()),
                 'supplier': self.supplier_var.get().strip(),
                 'price_kg': parse_number_input(self.price_var.get().strip() or "0", default=0.0),
-                'resa_percent': parse_percentage_input(self.resa_var.get().strip() or "100")
+                'resa_percent': parse_percentage_input(self.resa_var.get().strip() or "100"),
+                'current_lotto': self.lotto_var.get().strip()
             }
 
             # التحقق مما إذا كان اللون موجوداً بالفعل (لحالة الإضافة الجديدة)
@@ -393,7 +400,8 @@ class ColorsWindow:
                 dye_type=color_data['dye_type'],
                 supplier=color_data['supplier'],
                 price_kg=color_data['price_kg'],
-                resa_percent=color_data['resa_percent']
+                resa_percent=color_data['resa_percent'],
+                current_lotto=color_data.get('current_lotto', '')
             )
 
             if self.is_new_color:
@@ -456,7 +464,7 @@ class ColorsWindow:
             recipe_list += f"\n... and {num_recipes - 5} more recipes"
 
         message = (
-            f"⚠️ Color '{self.color_code}' is used in {num_recipes} recipe(s).\n\n"
+            f"Warning: Color '{self.color_code}' is used in {num_recipes} recipe(s).\n\n"
             f"Recipes using this color:\n{recipe_list}\n\n"
             "Choose how to proceed:"
         )
@@ -478,7 +486,7 @@ class ColorsWindow:
         dialog = tk.Toplevel(self.window)
         dialog.title("Color Deletion Options")
         dialog.geometry("500x300")
-        _show_on_top(dialog, self.window)
+        show_on_top(dialog, self.window)
 
         # Center the dialog
         dialog.update_idletasks()
@@ -524,14 +532,14 @@ class ColorsWindow:
             recipe_list = "\n".join([f"• {code}" for code in recipe_codes])
 
             confirm_msg = (
-                f"⚠️ WARNING: This will permanently delete {len(recipes_using_color)} recipe(s) and the color!\n\n"
+                f"WARNING: This will permanently delete {len(recipes_using_color)} recipe(s) and the color!\n\n"
                 f"Recipes to be deleted:\n{recipe_list}\n\n"
                 f"Color to be deleted: {self.color_code}\n\n"
                 "This action CANNOT be undone!\n\n"
                 "Are you absolutely sure?"
             )
 
-            if not messagebox.askyesno("⚠️ Confirm Mass Deletion", confirm_msg, parent=self.window):
+            if not messagebox.askyesno("Confirm Mass Deletion", confirm_msg, parent=self.window):
                 return
 
             # Get color ID
@@ -612,3 +620,4 @@ class ColorsWindow:
         """
 
         messagebox.showinfo("Help", help_text, parent=self.window)
+

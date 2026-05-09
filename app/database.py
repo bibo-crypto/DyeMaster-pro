@@ -1,4 +1,4 @@
-﻿"""
+"""
 مدير قاعدة البيانات
 """
 import sqlite3
@@ -6,6 +6,8 @@ import os
 import stat
 import shutil
 import hashlib
+import secrets
+import string
 import tempfile
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
@@ -125,6 +127,7 @@ class ColorManager:
     def update_color_in_recipes(self, old_color_id: int, new_code: str) -> bool:
         """تحديث الألوان في الوصفات عند تغيير كود اللون"""
         conn = None
+        cursor = None
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
@@ -145,7 +148,9 @@ class ColorManager:
                 return True
             
             return False
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Error updating color in recipes: {str(e)}")
             try:
                 if conn:
                     conn.rollback()
@@ -153,12 +158,21 @@ class ColorManager:
                 pass
             return False
         finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
             if conn:
-                conn.close()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def delete_color(self, color_id: int) -> bool:
         """حذف لون من قاعدة البيانات"""
         conn = None
+        cursor = None
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
@@ -184,7 +198,9 @@ class ColorManager:
 
             return True
 
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Error deleting color {color_id}: {str(e)}")
             try:
                 if conn:
                     conn.rollback()
@@ -192,8 +208,16 @@ class ColorManager:
                 pass
             return False
         finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
             if conn:
-                conn.close()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def get_color_by_id(self, color_id):
         """الحصول على لون بواسطة ID — يفوّض إلى DatabaseManager (النسخة الوحيدة مع Cache)"""
@@ -218,6 +242,7 @@ class ColorManager:
     def is_color_in_use(self, color_code: str) -> bool:
         """التحقق من استخدام اللون في ريتشتات"""
         conn = None
+        cursor = None
         try:
             from app.utils import clean_color_code
             normalized_code = clean_color_code(color_code)
@@ -234,15 +259,26 @@ class ColorManager:
             count = cursor.fetchone()[0]
 
             return count > 0
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Error checking if color {color_code} is in use: {str(e)}")
             return False
         finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
             if conn:
-                conn.close()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def get_recipes_using_color(self, color_code: str) -> List[Recipe]:
         """الحصول على جميع الريتشتات التي تستخدم هذا اللون"""
         conn = None
+        cursor = None
         try:
             from app.utils import clean_color_code
             normalized_code = clean_color_code(color_code)
@@ -268,11 +304,21 @@ class ColorManager:
                     created_at=row[3]
                 ))
             return recipes
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.warning(f"Error retrieving recipes for color {color_code}: {str(e)}")
             return []
         finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
             if conn:
-                conn.close()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 class DatabaseManager:
@@ -290,8 +336,9 @@ class DatabaseManager:
         """Fallback DB location when configured data path is read-only/unavailable."""
         if self._using_workspace_fallback:
             return
+        # Check if USER_DATA_DIR exists and is writable
         fallback_dir = os.path.join(USER_DATA_DIR, "fallback_data")
-        if not fallback_dir:
+        if not os.path.exists(USER_DATA_DIR) or not os.access(USER_DATA_DIR, os.W_OK):
             fallback_dir = os.path.join(tempfile.gettempdir(), "DyeMasterPro", "data")
         os.makedirs(fallback_dir, exist_ok=True)
         self.db_file = os.path.join(fallback_dir, "dyemasterpro.db")
@@ -305,6 +352,33 @@ class DatabaseManager:
         if os.path.exists(self.db_file) and not os.access(self.db_file, os.W_OK):
             return False
         return True
+
+
+    def get_user_by_id(self, user_id: int):
+        """Get user by ID — used to refresh session after admin edits."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, username, password_hash, role, active, last_login "
+                "FROM users WHERE id = ?",
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            from app.models import User
+            return User(
+                id=row[0], username=row[1], password_hash=row[2],
+                role=row[3], active=bool(row[4]), last_login=row[5],
+            )
+        except Exception as e:
+            print(f"get_user_by_id error: {e}")
+            return None
+        finally:
+            if conn:
+                conn.close()
 
     def get_user_by_username(self, username: str):
         """الحصول على مستخدم حسب username"""
@@ -334,17 +408,33 @@ class DatabaseManager:
     def update_user_last_login(self, user_id: int):
         """تحديث وقت آخر تسجيل دخول"""
         conn = None
+        cursor = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
             conn.commit()
             return cursor.rowcount > 0
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to update last login for user {user_id}: {str(e)}")
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
             return False
         finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
             if conn:
-                conn.close()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def get_all_users(self):
         """الحصول على جميع المستخدمين (للdebug)"""
@@ -359,6 +449,320 @@ class DatabaseManager:
             return users
         except Exception:
             return []
+        finally:
+            if conn:
+                conn.close()
+
+    def get_users_detailed(self):
+        """Return all users with metadata for the admin UI."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, username, role, created_at, last_login, active FROM users ORDER BY username COLLATE NOCASE"
+            )
+            rows = cursor.fetchall() or []
+            users = []
+            for row in rows:
+                users.append(
+                    {
+                        "id": row[0],
+                        "username": row[1],
+                        "role": row[2],
+                        "created_at": row[3],
+                        "last_login": row[4],
+                        "active": bool(row[5]),
+                    }
+                )
+            return users
+        except Exception:
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def update_user_username(self, user_id: int, new_username: str) -> bool:
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET username = ? WHERE id = ?", (new_username, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Update username error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def update_user_role(self, user_id: int, role: str) -> bool:
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Update role error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def set_user_active(self, user_id: int, active: bool) -> bool:
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET active = ? WHERE id = ?", (1 if active else 0, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Set active error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        return hashlib.sha256((password or "").encode()).hexdigest()
+
+    def update_user_password(self, user_id: int, new_password: str) -> bool:
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            pw_hash = self.hash_password(new_password)
+            cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (pw_hash, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Update password error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def add_user(self, username: str, password: str, role: str = "viewer", active: bool = True) -> int | None:
+        """Create a new user and return its id, or None on failure/duplicate."""
+        username = (username or "").strip()
+        role = (role or "viewer").strip().lower()
+        if not username:
+            return None
+        if role not in ("admin", "tech", "viewer"):
+            role = "viewer"
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            pw_hash = self.hash_password(password)
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, role, active) VALUES (?, ?, ?, ?)",
+                (username, pw_hash, role, 1 if active else 0),
+            )
+            user_id = cursor.lastrowid
+            conn.commit()
+            self._invalidate_read_cache()
+            return int(user_id) if user_id else None
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Add user error: {e}")
+            return None
+        finally:
+            if conn:
+                conn.close()
+
+    def reset_all_user_passwords(self, password_length: int = 10) -> dict:
+        """
+        Reset passwords for all active users.
+
+        Returns a mapping: {username: new_plain_password}
+        """
+        alphabet = string.ascii_letters + string.digits
+        if password_length < 6:
+            password_length = 6
+
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, username FROM users WHERE active = 1")
+            rows = cursor.fetchall() or []
+            new_passwords = {}
+            for user_id, username in rows:
+                pw = "".join(secrets.choice(alphabet) for _ in range(password_length))
+                new_passwords[str(username)] = pw
+                cursor.execute(
+                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    (self.hash_password(pw), user_id),
+                )
+            conn.commit()
+            self._invalidate_read_cache()
+            return new_passwords
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Reset all passwords error: {e}")
+            return {}
+        finally:
+            if conn:
+                conn.close()
+
+    def reset_all_user_passwords_to(self, new_password: str) -> bool:
+        """Reset passwords for all active users to a single known password."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET password_hash = ? WHERE active = 1", (self.hash_password(new_password),))
+            conn.commit()
+            self._invalidate_read_cache()
+            return True
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Reset all passwords(to) error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def reset_default_system_users(self) -> bool:
+        """
+        Restore the default system accounts to their original credentials:
+        - admin / __DEFAULT__
+        - tech  / __DEFAULT__
+        - viewer / __DEFAULT__
+
+        This does NOT touch other users.
+        """
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            admin_hash = self.hash_password("__DEFAULT__")
+            tech_hash = self.hash_password("__DEFAULT__")
+            viewer_hash = self.hash_password("__DEFAULT__")
+
+            # Ensure accounts exist and are active with correct roles.
+            cursor.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, role, active) VALUES ('admin', ?, 'admin', 1)",
+                (admin_hash,),
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, role, active) VALUES ('tech', ?, 'tech', 1)",
+                (tech_hash,),
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, role, active) VALUES ('viewer', ?, 'viewer', 1)",
+                (viewer_hash,),
+            )
+
+            cursor.execute(
+                "UPDATE users SET password_hash = ?, role = 'admin', active = 1 WHERE username = 'admin'",
+                (admin_hash,),
+            )
+            cursor.execute(
+                "UPDATE users SET password_hash = ?, role = 'tech', active = 1 WHERE username = 'tech'",
+                (tech_hash,),
+            )
+            cursor.execute(
+                "UPDATE users SET password_hash = ?, role = 'viewer', active = 1 WHERE username = 'viewer'",
+                (viewer_hash,),
+            )
+
+            conn.commit()
+            self._invalidate_read_cache()
+            return True
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Reset default system users error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def get_user_permission_overrides(self, user_id: int) -> dict:
+        """Return {permission: bool} overrides for a user."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT permission, allowed FROM user_permissions WHERE user_id = ?",
+                (user_id,),
+            )
+            out = {}
+            for perm, allowed in cursor.fetchall() or []:
+                out[str(perm)] = bool(int(allowed))
+            return out
+        except Exception:
+            return {}
+        finally:
+            if conn:
+                conn.close()
+
+    def set_user_permission_overrides(self, user_id: int, overrides: dict, updated_by=None) -> bool:
+        """Replace all overrides for a user."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM user_permissions WHERE user_id = ?", (user_id,))
+            for perm, allowed in (overrides or {}).items():
+                cursor.execute(
+                    "INSERT OR REPLACE INTO user_permissions (user_id, permission, allowed, updated_by) VALUES (?, ?, ?, ?)",
+                    (user_id, str(perm), 1 if bool(allowed) else 0, updated_by),
+                )
+            conn.commit()
+            return True
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Set permission overrides error: {e}")
+            return False
         finally:
             if conn:
                 conn.close()
@@ -530,6 +934,19 @@ class DatabaseManager:
                 )
             ''')
 
+            # Per-user permission overrides (editable from admin UI)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_permissions (
+                    user_id INTEGER NOT NULL,
+                    permission TEXT NOT NULL,
+                    allowed INTEGER NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_by TEXT,
+                    PRIMARY KEY (user_id, permission),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            ''')
+
             # إضافة الأعمدة المفقودة إذا كان الجدول موجوداً
             try:
                 cursor.execute('ALTER TABLE recipes ADD COLUMN colors_count INTEGER DEFAULT 0')
@@ -540,7 +957,60 @@ class DatabaseManager:
                 cursor.execute('ALTER TABLE recipes ADD COLUMN total_percentage REAL DEFAULT 0.0')
             except sqlite3.OperationalError:
                 pass  # العمود موجود بالفعل
-            
+
+            # جدول اللوطات (Lotto) — لكل لون
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS color_lottos
+                (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    color_id    INTEGER NOT NULL,
+                    lotto_no    TEXT    NOT NULL,
+                    quantity_kg REAL    DEFAULT 0.0,
+                    resa_percent REAL   DEFAULT 100.0,
+                    supplier    TEXT,
+                    notes       TEXT,
+                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by  TEXT,
+                    FOREIGN KEY (color_id) REFERENCES colors (id)
+                )
+            ''')
+            # سجل تاريخ التعديلات على اللوطة
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lotto_history
+                (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lotto_id    INTEGER NOT NULL,
+                    field_name  TEXT    NOT NULL,
+                    old_value   TEXT,
+                    new_value   TEXT,
+                    changed_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    changed_by  TEXT,
+                    FOREIGN KEY (lotto_id) REFERENCES color_lottos (id)
+                )
+            ''')
+            # Color change history table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS color_history (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    color_id   INTEGER NOT NULL,
+                    field_name TEXT    NOT NULL,
+                    old_value  TEXT,
+                    new_value  TEXT,
+                    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    changed_by TEXT,
+                    FOREIGN KEY (color_id) REFERENCES colors(id)
+                )
+            ''')
+            try:
+                cursor.execute('ALTER TABLE colors ADD COLUMN current_lotto TEXT DEFAULT ""')
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute('ALTER TABLE color_lottos ADD COLUMN resa_percent REAL DEFAULT 100.0')
+            except sqlite3.OperationalError:
+                pass
+
             # إضافة الفهارس لتحسين الأداء
             self._create_indexes(cursor)
             
@@ -573,7 +1043,8 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_recipes_name ON recipes(name)",
             "CREATE INDEX IF NOT EXISTS idx_recipe_colors_recipe ON recipe_colors(recipe_id)",
             "CREATE INDEX IF NOT EXISTS idx_recipe_colors_color ON recipe_colors(color_id)",
-            "CREATE INDEX IF NOT EXISTS idx_recipe_chemicals_recipe ON recipe_chemicals(recipe_id)"
+            "CREATE INDEX IF NOT EXISTS idx_recipe_chemicals_recipe ON recipe_chemicals(recipe_id)",
+            "CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id)"
         ]
         
         for index_sql in indexes:
@@ -598,53 +1069,80 @@ class DatabaseManager:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-
-            # إذا لم تكن هناك تواريخ، استخدم القيم الحالية
             created_at = color.created_at if color.created_at else get_current_timestamp()
             updated_at = color.updated_at if color.updated_at else get_current_timestamp()
+            lotto = getattr(color, 'current_lotto', '') or ''
 
             cursor.execute('''
-                           INSERT INTO colors (code, name, dye_type, supplier, price_kg, resa_percent, created_at,
-                                               updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                           ''', (color.code, color.name, color.dye_type, color.supplier,
-                                 color.price_kg, color.resa_percent, created_at, updated_at))
+                INSERT INTO colors (code, name, dye_type, supplier, price_kg, resa_percent,
+                                    current_lotto, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (color.code, color.name, color.dye_type, color.supplier,
+                  color.price_kg, color.resa_percent, lotto, created_at, updated_at))
+            color_id = cursor.lastrowid
+
+            for field, val in [
+                ('code', color.code), ('name', color.name),
+                ('dye_type', color.dye_type), ('supplier', color.supplier),
+                ('price_kg', str(color.price_kg)), ('resa_percent', str(color.resa_percent)),
+                ('lotto', lotto),
+            ]:
+                cursor.execute(
+                    'INSERT INTO color_history (color_id,field_name,old_value,new_value,changed_by) VALUES (?,?,?,?,?)',
+                    (color_id, field, None, val, 'created')
+                )
 
             conn.commit()
-            color_id = cursor.lastrowid
             self._invalidate_read_cache()
             return color_id
 
-        except sqlite3.IntegrityError as e:
-            if conn:
-                conn.rollback()
+        except sqlite3.IntegrityError:
+            if conn: conn.rollback()
             raise Exception(f"Color code '{color.code}' already exists")
         except Exception as e:
-            if conn:
-                conn.rollback()
+            if conn: conn.rollback()
             raise Exception(f"Failed to add color: {str(e)}")
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
 
     def update_color(self, color: Color) -> bool:
-        """تحديث بيانات لون"""
+        """تحديث بيانات لون مع تسجيل التغييرات"""
         conn = None
         try:
             from app.utils import get_current_timestamp
             conn = self.get_connection()
             cursor = conn.cursor()
-
             updated_at = get_current_timestamp()
+            # get old values before update
+            cursor.execute(
+                'SELECT name,dye_type,supplier,price_kg,resa_percent,current_lotto FROM colors WHERE id=?',
+                (color.id,)
+            )
+            old_row = cursor.fetchone()
 
+            lotto = getattr(color, 'current_lotto', '') or ''
             cursor.execute('''
-                UPDATE colors 
-                SET code = ?, name = ?, dye_type = ?, supplier = ?, price_kg = ?, resa_percent = ?, updated_at = ?
-                WHERE id = ?
+                UPDATE colors
+                SET code=?, name=?, dye_type=?, supplier=?, price_kg=?, resa_percent=?,
+                    current_lotto=?, updated_at=?
+                WHERE id=?
             ''', (color.code, color.name, color.dye_type, color.supplier,
-                  color.price_kg, color.resa_percent, updated_at, color.id))
+                  color.price_kg, color.resa_percent, lotto, updated_at, color.id))
 
             affected = cursor.rowcount
+
+            # log changed fields
+            if old_row and affected > 0:
+                fields = ['name','dye_type','supplier','price_kg','resa_percent','lotto']
+                new_vals = [color.name, color.dye_type, color.supplier,
+                            str(color.price_kg), str(color.resa_percent), lotto]
+                for field, old_val, new_val in zip(fields, [str(v) if v else '' for v in old_row], new_vals):
+                    if str(old_val) != str(new_val):
+                        cursor.execute(
+                            'INSERT INTO color_history (color_id,field_name,old_value,new_value,changed_by) VALUES (?,?,?,?,?)',
+                            (color.id, field, old_val, new_val, 'updated')
+                        )
+
             conn.commit()
             if affected > 0:
                 self._invalidate_read_cache()
@@ -652,14 +1150,12 @@ class DatabaseManager:
 
         except Exception as e:
             try:
-                if conn:
-                    conn.rollback()
+                if conn: conn.rollback()
             except Exception:
                 pass
             raise Exception(f"Failed to update color: {str(e)}")
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
 
     def delete_color(self, color_id: int) -> bool:
         """حذف لون مع حذف ارتباطاته في الوصفات"""
@@ -747,6 +1243,7 @@ class DatabaseManager:
             supplier=color_dict.get('supplier', ''),
             price_kg=color_dict.get('price_kg', 0.0),
             resa_percent=color_dict.get('resa_percent', 0.0),
+            current_lotto=color_dict.get('current_lotto', ''),
             created_at=color_dict.get('created_at', ''),
             updated_at=color_dict.get('updated_at', '')
         )
@@ -771,6 +1268,7 @@ class DatabaseManager:
                                   supplier,
                                   price_kg,
                                   resa_percent,
+                                  current_lotto,
                                   created_at,
                                   updated_at
                            FROM colors
@@ -787,8 +1285,9 @@ class DatabaseManager:
                     supplier=row[4],
                     price_kg=row[5],
                     resa_percent=row[6],
-                    created_at=row[7],
-                    updated_at=row[8]
+                    current_lotto=row[7],
+                    created_at=row[8],
+                    updated_at=row[9]
                 )
                 cache_manager.set(cache_key, color_obj)
                 return color_obj
@@ -863,6 +1362,7 @@ class DatabaseManager:
                                   supplier,
                                   price_kg,
                                   resa_percent,
+                                  current_lotto,
                                   created_at,
                                   updated_at
                            FROM colors
@@ -879,8 +1379,9 @@ class DatabaseManager:
                     supplier=row[4],
                     price_kg=row[5],
                     resa_percent=row[6],
-                    created_at=row[7],
-                    updated_at=row[8]
+                    current_lotto=row[7],
+                    created_at=row[8],
+                    updated_at=row[9]
                 )
                 colors.append(color)
 
@@ -1552,7 +2053,7 @@ class DatabaseManager:
 
             # الحصول على جميع الألوان المستخدمة مع تفاصيلها
             cursor.execute('''
-                SELECT DISTINCT c.id, c.code, c.name, c.dye_type, c.supplier, c.price_kg
+                SELECT DISTINCT c.id, c.code, c.name, c.dye_type, c.supplier, c.price_kg, c.current_lotto, c.resa_percent
                 FROM colors c
                 INNER JOIN recipe_colors rc ON c.id = rc.color_id
                 ORDER BY c.code
@@ -1592,7 +2093,9 @@ class DatabaseManager:
                         'name': color_row[2],
                         'dye_type': color_row[3],
                         'supplier': color_row[4] or '',
-                        'price_kg': color_row[5] or 0.0
+                        'price_kg': color_row[5] or 0.0,
+                        'current_lotto': color_row[6] or '',
+                        'resa_percent': color_row[7] if color_row[7] is not None else 100.0
                     },
                     'recipes': recipes_list,
                     'total_recipes': len(recipes_list),
@@ -1948,3 +2451,240 @@ class DatabaseManager:
     def cleanup_expired_cache(self):
         """تنظيف عناصر الـ Cache المنتهية الصلاحية"""
         cache_manager.cleanup_expired()
+
+    # ─── Lotto Methods ────────────────────────────────────────────────────────
+
+    def get_lottos_for_color(self, color_id: int) -> List[Dict]:
+        """Get all lottos for a color, newest first."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, lotto_no, quantity_kg, resa_percent, supplier, notes, created_at, created_by
+                FROM color_lottos
+                WHERE color_id = ?
+                ORDER BY created_at DESC
+            """, (color_id,))
+            rows = cursor.fetchall()
+            return [
+                {"id": r[0], "lotto_no": r[1], "quantity_kg": r[2],
+                 "resa_percent": r[3], "supplier": r[4], "notes": r[5],
+                 "created_at": r[6], "created_by": r[7]}
+                for r in rows
+            ]
+        except Exception as exc:
+            print(f"get_lottos_for_color error: {exc}")
+            return []
+        finally:
+            if conn: conn.close()
+
+    def add_lotto(self, color_id: int, lotto_no: str, quantity_kg: float = 0.0,
+                  supplier: str = "", notes: str = "", created_by: str = "",
+                  resa_percent: float = 100.0) -> Optional[int]:
+        """Insert a new lotto and return its id."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO color_lottos (color_id, lotto_no, quantity_kg, resa_percent, supplier, notes, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (color_id, lotto_no.strip(), quantity_kg, resa_percent, supplier, notes, created_by))
+            new_id = cursor.lastrowid
+            cursor.execute("SELECT current_lotto, resa_percent FROM colors WHERE id=?", (color_id,))
+            old_color = cursor.fetchone()
+            old_lotto = str(old_color[0]) if old_color and old_color[0] is not None else ""
+            old_resa = str(old_color[1]) if old_color and old_color[1] is not None else "100.0"
+            now = get_current_timestamp()
+            # update color current state
+            cursor.execute(
+                "UPDATE colors SET current_lotto=?, resa_percent=?, updated_at=? WHERE id=?",
+                (lotto_no.strip(), float(resa_percent), now, color_id),
+            )
+            # log creation
+            cursor.execute("""
+                INSERT INTO lotto_history (lotto_id, field_name, old_value, new_value, changed_by)
+                VALUES (?, 'lotto_no', NULL, ?, ?)
+            """, (new_id, lotto_no.strip(), created_by))
+            # log resa_percent creation
+            cursor.execute("""
+                INSERT INTO lotto_history (lotto_id, field_name, old_value, new_value, changed_by)
+                VALUES (?, 'resa_percent', NULL, ?, ?)
+            """, (new_id, str(resa_percent), created_by))
+            # mirror changes to color_history for Manage Lotto timeline
+            if old_lotto != lotto_no.strip():
+                cursor.execute(
+                    "INSERT INTO color_history (color_id, field_name, old_value, new_value, changed_by) VALUES (?,?,?,?,?)",
+                    (color_id, "lotto", old_lotto, lotto_no.strip(), created_by or "updated"),
+                )
+            if old_resa != str(float(resa_percent)):
+                cursor.execute(
+                    "INSERT INTO color_history (color_id, field_name, old_value, new_value, changed_by) VALUES (?,?,?,?,?)",
+                    (color_id, "resa_percent", old_resa, str(float(resa_percent)), created_by or "updated"),
+                )
+            conn.commit()
+            return new_id
+        except Exception as exc:
+            print(f"add_lotto error: {exc}")
+            if conn: conn.rollback()
+            return None
+        finally:
+            if conn: conn.close()
+
+    def update_lotto(self, lotto_id: int, field: str, new_value: str, changed_by: str = "") -> bool:
+        """Update a single field on a lotto and log the change."""
+        allowed = {"lotto_no", "quantity_kg", "resa_percent", "supplier", "notes"}
+        if field not in allowed:
+            return False
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT color_id, {field} FROM color_lottos WHERE id=?", (lotto_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+            color_id = row[0]
+            old_val = str(row[1]) if row[1] is not None else ""
+            # Handle resa_percent as float
+            if field == "resa_percent":
+                try:
+                    new_value = str(float(new_value))
+                except ValueError:
+                    new_value = "100.0"
+            cursor.execute(f"UPDATE color_lottos SET {field}=? WHERE id=?", (new_value, lotto_id))
+            cursor.execute("""
+                INSERT INTO lotto_history (lotto_id, field_name, old_value, new_value, changed_by)
+                VALUES (?, ?, ?, ?, ?)
+            """, (lotto_id, field, old_val, str(new_value), changed_by))
+            now = get_current_timestamp()
+            # Keep colors table synced for visible lotto/resa/updated columns.
+            if field == "lotto_no":
+                cursor.execute("UPDATE colors SET current_lotto=?, updated_at=? WHERE id=?", (str(new_value), now, color_id))
+                cursor.execute(
+                    "INSERT INTO color_history (color_id, field_name, old_value, new_value, changed_by) VALUES (?,?,?,?,?)",
+                    (color_id, "lotto", old_val, str(new_value), changed_by or "updated"),
+                )
+            elif field == "resa_percent":
+                cursor.execute("UPDATE colors SET resa_percent=?, updated_at=? WHERE id=?", (float(new_value), now, color_id))
+                cursor.execute(
+                    "INSERT INTO color_history (color_id, field_name, old_value, new_value, changed_by) VALUES (?,?,?,?,?)",
+                    (color_id, "resa_percent", old_val, str(new_value), changed_by or "updated"),
+                )
+            else:
+                cursor.execute("UPDATE colors SET updated_at=? WHERE id=?", (now, color_id))
+            conn.commit()
+            return True
+        except Exception as exc:
+            print(f"update_lotto error: {exc}")
+            if conn: conn.rollback()
+            return False
+        finally:
+            if conn: conn.close()
+
+    def delete_lotto(self, lotto_id: int, changed_by: str = "") -> bool:
+        """Delete a lotto (keeps history)."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO lotto_history (lotto_id, field_name, old_value, new_value, changed_by)
+                VALUES (?, 'DELETED', 'exists', 'deleted', ?)
+            """, (lotto_id, changed_by))
+            cursor.execute("DELETE FROM color_lottos WHERE id=?", (lotto_id,))
+            conn.commit()
+            return True
+        except Exception as exc:
+            print(f"delete_lotto error: {exc}")
+            if conn: conn.rollback()
+            return False
+        finally:
+            if conn: conn.close()
+
+    def get_lotto_history(self, lotto_id: int) -> List[Dict]:
+        """Get full change history for a lotto."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, field_name, old_value, new_value, changed_at, changed_by
+                FROM lotto_history
+                WHERE lotto_id = ?
+                ORDER BY changed_at ASC
+            """, (lotto_id,))
+            rows = cursor.fetchall()
+            return [
+                {"id": r[0], "field": r[1], "old": r[2],
+                 "new": r[3], "at": r[4], "by": r[5]}
+                for r in rows
+            ]
+        except Exception as exc:
+            print(f"get_lotto_history error: {exc}")
+            return []
+        finally:
+            if conn: conn.close()
+
+    def reset_lotto_history_for_color(self, color_id: int) -> int:
+        """Delete all manage-lotto history rows for one color (lotto_history + color_history)."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM color_lottos WHERE color_id=?", (color_id,))
+            lotto_ids = [r[0] for r in cursor.fetchall()]
+            deleted = 0
+            if lotto_ids:
+                placeholders = ",".join("?" for _ in lotto_ids)
+                cursor.execute(f"DELETE FROM lotto_history WHERE lotto_id IN ({placeholders})", tuple(lotto_ids))
+                deleted += cursor.rowcount or 0
+            cursor.execute("DELETE FROM color_history WHERE color_id=?", (color_id,))
+            deleted += cursor.rowcount or 0
+            conn.commit()
+            return deleted
+        except Exception as exc:
+            print(f"reset_lotto_history_for_color error: {exc}")
+            if conn:
+                conn.rollback()
+            return 0
+        finally:
+            if conn:
+                conn.close()
+
+    def get_color_id_by_code(self, code: str) -> Optional[int]:
+        """Return color.id for a given code."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM colors WHERE code=?", (code.strip().upper(),))
+            row = cursor.fetchone()
+            return row[0] if row else None
+        except Exception:
+            return None
+        finally:
+            if conn: conn.close()
+
+    def get_color_history(self, color_id: int):
+        """Get full change history for a color."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, field_name, old_value, new_value, changed_at, changed_by
+                FROM color_history
+                WHERE color_id = ?
+                ORDER BY changed_at ASC, id ASC
+            """, (color_id,))
+            rows = cursor.fetchall()
+            return [
+                {"id": r[0], "field": r[1], "old": r[2], "new": r[3], "at": r[4], "by": r[5]}
+                for r in rows
+            ]
+        except Exception:
+            return []
+        finally:
+            if conn: conn.close()

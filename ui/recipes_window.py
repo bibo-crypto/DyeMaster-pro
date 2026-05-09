@@ -10,20 +10,11 @@ from app.database import DatabaseManager
 from app.session import SessionManager
 from ui.theme_tokens import (
     configure_sub_button_style, setup_tree_tags, zebra_insert,
-    get_theme_tokens, apply_excel_treeview_style,
+    get_theme_tokens, apply_excel_treeview_style, show_on_top,
 )
 
 
-def _show_on_top(window, parent):
-    """Make child windows modal and keep them above parent."""
-    try:
-        window.lift()
-        window.focus_force()
-        window.grab_set()
-        window.attributes("-topmost", True)
-        window.after(250, lambda: window.attributes("-topmost", False))
-    except tk.TclError:
-        pass
+
 
 
 class RecipesWindow:
@@ -39,7 +30,7 @@ class RecipesWindow:
 
         # إنشاء النافذة
         self.window = tk.Toplevel(parent)
-        _show_on_top(self.window, parent)
+        show_on_top(self.window, parent)
         self.window.title("Recipes - الريتشتات")
         
         # ضبط أبعاد النافذة لتكون متجاوبة

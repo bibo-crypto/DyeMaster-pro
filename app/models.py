@@ -11,6 +11,7 @@ class Color:
     supplier: str = ""
     price_kg: float = 0.0
     resa_percent: float = 100.0
+    current_lotto: str = ""
     created_at: str = ""
     updated_at: str = ""
 

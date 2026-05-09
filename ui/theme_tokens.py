@@ -45,38 +45,46 @@ LIGHT_THEME = {
 }
 
 DARK_THEME = {
-    "bg":                "#1E2533",
-    "frame_bg":          "#1E2533",
-    "card_bg":           "#252D3D",
+    # ── Backgrounds (layered depth) ──────────────────────────────────────
+    "bg":                "#0F1117",   # deepest — window background
+    "frame_bg":          "#0F1117",
+    "card_bg":           "#1C1F2E",   # panels / cards
 
-    "fg":                "#E8EDF5",
-    "fg_muted":          "#8B9AB5",
+    # ── Text ─────────────────────────────────────────────────────────────
+    "fg":                "#E2E8F0",   # primary text
+    "fg_muted":          "#64748B",   # secondary / placeholder
 
-    "entry_bg":          "#2C3650",
-    "entry_border":      "#3D4F6A",
+    # ── Inputs ───────────────────────────────────────────────────────────
+    "entry_bg":          "#1C1F2E",
+    "entry_border":      "#334155",
 
-    "button_bg":         "#2E6BC4",
+    # ── Buttons ──────────────────────────────────────────────────────────
+    "button_bg":         "#3B82F6",   # bright blue — stands out on dark bg
     "button_fg":         "#FFFFFF",
-    "button_active_bg":  "#1F52A0",
-    "button_shadow":     "#141A26",
+    "button_active_bg":  "#2563EB",
+    "button_shadow":     "#0F1117",
 
-    "accent_bg":         "#2E6BC4",
-    "accent_active_bg":  "#1F52A0",
+    # ── Accent ───────────────────────────────────────────────────────────
+    "accent_bg":         "#6366F1",   # indigo accent
+    "accent_active_bg":  "#4F46E5",
 
-    "header_bg":         "#1A2030",
-    "header_border":     "#2D3D58",
+    # ── Toolbar / header ─────────────────────────────────────────────────
+    "header_bg":         "#161B2C",   # slightly lighter than bg
+    "header_border":     "#1E293B",
 
-    "tree_bg":           "#252D3D",
-    "tree_fg":           "#E8EDF5",
-    "tree_selected_bg":  "#2E6BC4",
+    # ── Treeview ─────────────────────────────────────────────────────────
+    "tree_bg":           "#1C1F2E",
+    "tree_fg":           "#E2E8F0",
+    "tree_selected_bg":  "#3B82F6",
 
-    "labelframe_border": "#2D3D58",
-    "statusbar_bg":      "#161D2B",
+    # ── Borders / frames ─────────────────────────────────────────────────
+    "labelframe_border": "#1E293B",
+    "statusbar_bg":      "#0A0D14",   # darkest — status bar
 }
 
 # Zebra rows — comfortable contrast: gray + off-white
 ZEBRA_LIGHT = {"odd": "#D3D3D3", "even": "#C9CDD3", "hover": "#E1E6EE"}
-ZEBRA_DARK  = {"odd": "#252D3D", "even": "#2A3348", "hover": "#2E4060"}
+ZEBRA_DARK  = {"odd": "#1C1F2E", "even": "#161B2C", "hover": "#1E293B"}
 
 
 def get_theme_tokens(dark_mode: bool) -> dict:
@@ -89,7 +97,7 @@ def get_theme_tokens(dark_mode: bool) -> dict:
 
 def _make_button(style: ttk.Style, name: str, bg: str, fg: str, active_bg: str,
                  font=None, padding=8):
-    """Raised button with 3-D border — pressed = sunken."""
+    """Modern button — flat in dark backgrounds, raised in light."""
     f = font or BOLD_FONT
     style.configure(
         name,
@@ -97,15 +105,16 @@ def _make_button(style: ttk.Style, name: str, bg: str, fg: str, active_bg: str,
         padding=padding,
         background=bg,
         foreground=fg,
-        relief="raised",
-        borderwidth=2,
+        relief="flat",
+        borderwidth=0,
         anchor="center",
     )
     style.map(
         name,
-        background=[("active", active_bg), ("disabled", "#B0B8C4")],
-        foreground=[("disabled", "#788090")],
-        relief=[("active", "sunken"), ("pressed", "sunken")],
+        background=[("active", active_bg), ("pressed", active_bg),
+                    ("disabled", "#334155")],
+        foreground=[("disabled", "#64748B")],
+        relief=[("pressed", "flat"), ("active", "flat")],
     )
 
 
@@ -150,7 +159,6 @@ def apply_global_styles(style: ttk.Style, palette: dict, dark_mode: bool) -> Non
 
     # ── Frames ────────────────────────────────────────────────────────
     style.configure("TFrame",      background=bg)
-    # RaisedPanel.TFrame — the 3-D panel used for toolbar groups
     style.configure("RaisedPanel.TFrame",
                     background=hdr_bg,
                     relief="raised",
@@ -160,24 +168,25 @@ def apply_global_styles(style: ttk.Style, palette: dict, dark_mode: bool) -> Non
     style.configure("TLabel",
                     background=bg, foreground=fg, font=BASE_FONT)
 
-    # ── LabelFrame — ridge gives the strongest 3-D inset look ─────────
+    # ── LabelFrame ────────────────────────────────────────────────────
+    # Dark: subtle flat border | Light: ridge 3-D inset
     style.configure("TLabelframe",
                     background=bg,
                     bordercolor=lf_bdr,
-                    relief="ridge",
-                    borderwidth=3)
+                    relief="flat" if dark_mode else "ridge",
+                    borderwidth=2 if dark_mode else 3)
     style.configure("TLabelframe.Label",
                     background=bg,
-                    foreground=fg,
+                    foreground=palette["accent_bg"] if dark_mode else fg,
                     font=BOLD_FONT)
 
-    # ── Entries / Comboboxes ──────────────────────────────────────────
+    # ── Entries ───────────────────────────────────────────────────────
     style.configure("TEntry",
                     fieldbackground=entry_bg,
                     foreground=fg,
                     insertcolor=fg,
-                    borderwidth=2,
-                    relief="sunken")
+                    borderwidth=2 if dark_mode else 2,
+                    relief="flat" if dark_mode else "sunken")
     style.map("TCombobox",
               fieldbackground=[("readonly", entry_bg)],
               selectbackground=[("readonly", entry_bg)],
@@ -186,21 +195,27 @@ def apply_global_styles(style: ttk.Style, palette: dict, dark_mode: bool) -> Non
     style.configure("TCombobox", foreground=fg)
 
     # ── Scrollbar ─────────────────────────────────────────────────────
+    scrollbar_bg = "#1E293B" if dark_mode else palette["button_bg"]
+    scrollbar_trough = "#0F1117" if dark_mode else hdr_bg
     style.configure("TScrollbar",
-                    background=palette["button_bg"],
-                    troughcolor=hdr_bg,
-                    borderwidth=1,
+                    background=scrollbar_bg,
+                    troughcolor=scrollbar_trough,
+                    borderwidth=0 if dark_mode else 1,
                     arrowcolor=palette["button_fg"],
-                    relief="raised")
+                    relief="flat" if dark_mode else "raised")
+    style.map("TScrollbar",
+              background=[("active", palette["button_bg"])])
 
     # ── Notebook ──────────────────────────────────────────────────────
     style.configure("TNotebook",     background=bg, borderwidth=0)
-    style.configure("TNotebook.Tab", background=hdr_bg, foreground=fg,
-                    font=BOLD_FONT,  padding=(12, 6), borderwidth=2,
-                    relief="raised")
+    style.configure("TNotebook.Tab",
+                    background="#1E293B" if dark_mode else hdr_bg,
+                    foreground=fg,
+                    font=BOLD_FONT, padding=(12, 6), borderwidth=0,
+                    relief="flat")
     style.map("TNotebook.Tab",
               background=[("selected", card)],
-              foreground=[("selected", palette["button_bg"])],
+              foreground=[("selected", palette["accent_bg"] if dark_mode else palette["button_bg"])],
               relief=[("selected", "flat")])
 
     # ── Separator ─────────────────────────────────────────────────────
@@ -239,22 +254,23 @@ def apply_excel_treeview_style(style: ttk.Style, palette: dict, dark_mode: bool)
         foreground=[("selected", "#FFFFFF")],
     )
 
-    # Column headings — blue/gray like Excel table headers in screenshot
-    hdr_bg  = "#A9BBD2" if not dark_mode else "#3E4E63"
-    hdr_act = "#95ACC7" if not dark_mode else "#344457"
+    # Column headings — rich dark blue in dark mode
+    hdr_bg  = "#A9BBD2" if not dark_mode else "#1E293B"
+    hdr_act = "#95ACC7" if not dark_mode else "#334155"
+    hdr_fg  = "#000000" if not dark_mode else "#93C5FD"  # light blue text in dark
     style.configure(
         "Treeview.Heading",
         font=BOLD_FONT,
         background=hdr_bg,
-        foreground="#000000" if not dark_mode else "#FFFFFF",
-        relief="raised",
+        foreground=hdr_fg,
+        relief="flat" if dark_mode else "raised",
         borderwidth=1,
         padding=(6, 7),
     )
     style.map(
         "Treeview.Heading",
         background=[("active", hdr_act)],
-        relief=[("active", "sunken")],
+        relief=[("active", "sunken" if not dark_mode else "flat")],
     )
 
 
@@ -301,3 +317,14 @@ def add_treeview_grid_lines(tree: ttk.Treeview, dark_mode: bool) -> None:
         pass
 
     tree.bind("<Configure>", _redraw)
+
+def show_on_top(window, parent=None):
+    """Make a Toplevel window appear on top and grab focus. Used by all windows."""
+    try:
+        window.lift()
+        window.focus_force()
+        window.grab_set()  # منع التعامل مع أي نافذة أخرى (Modal Logic)
+        window.attributes("-topmost", True)
+        window.after(250, lambda: window.attributes("-topmost", False))
+    except Exception:
+        pass

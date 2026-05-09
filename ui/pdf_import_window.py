@@ -14,19 +14,10 @@ from app.models import Recipe, Color
 from app.utils import get_current_timestamp, parse_percentage_input, clean_recipe_code
 from app.config import DYE_TYPES
 from app.lab_settings import load_lab_settings, save_lab_settings
-from ui.theme_tokens import setup_tree_tags, zebra_insert, get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style
+from ui.theme_tokens import setup_tree_tags, zebra_insert, get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style, show_on_top
 
 
-def _show_on_top(window, parent):
-    """Make child windows modal and keep them above parent."""
-    try:
-        window.lift()
-        window.focus_force()
-        window.grab_set()
-        window.attributes("-topmost", True)
-        window.after(250, lambda: window.attributes("-topmost", False))
-    except Exception:
-        pass
+
 
 
 class _AddMissingColorsWindow:
@@ -40,10 +31,10 @@ class _AddMissingColorsWindow:
         self.window = tk.Toplevel(parent)
         # Keep this dialog as a normal top-level window so OS title-bar
         # controls remain available.
-        _show_on_top(self.window, parent)
+        show_on_top(self.window, parent)
         # Re-assert z-order after first paint to avoid being sent behind parent
         # on some Windows window-manager timing cases.
-        self.window.after_idle(lambda: _show_on_top(self.window, parent))
+        self.window.after_idle(lambda: show_on_top(self.window, parent))
         try:
             self.window.grab_set()
         except Exception:
@@ -224,7 +215,7 @@ class PDFImportWindow:
 
         self.window = tk.Toplevel(parent)
         # Keep as normal top-level window so OS title-bar controls remain available.
-        _show_on_top(self.window, parent)
+        show_on_top(self.window, parent)
         self.window.title("Import Recipe from PDF")
         
         # ضبط أبعاد النافذة لتكون متجاوبة
@@ -511,7 +502,7 @@ class PDFImportWindow:
             defaultextension=".pdf",
             filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")]
         )
-        _show_on_top(self.window, self.parent)
+        show_on_top(self.window, self.parent)
 
         if file_path:
             self.file_path_var.set(file_path)

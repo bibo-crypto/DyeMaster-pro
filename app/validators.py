@@ -1,4 +1,4 @@
-﻿"""
+"""
 مدقق البيانات (Validators) للتطبيق
 """
 import re
@@ -57,10 +57,6 @@ class Validators:
 
         if not code:
             return False, "Recipe code cannot be empty"
-
-        # التحقق من الطول
-        if len(code) > 20:
-            return False, "Recipe code cannot exceed 20 characters"
 
         # التحقق من التنسيق (6 أرقام)
         if not code.isdigit():
@@ -353,7 +349,7 @@ class Validators:
         if not is_valid:
             return False, f"Color name: {message}", None
 
-        # ✅ التحقق من نوع الصباغة إذا تم توفير القائمة
+        # [OK] التحقق من نوع الصباغة إذا تم توفير القائمة
         if allowed_dye_types:
             is_valid, message = Validators.validate_dye_type(cleaned_data['dye_type'], allowed_dye_types)
             if not is_valid:
@@ -463,4 +459,5 @@ class Validators:
                 return False, f"Total percentage ({total_percentage:.2f}%) cannot exceed 100%", None
 
         return True, "Recipe data is valid", cleaned_data
+
 

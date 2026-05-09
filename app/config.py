@@ -1,12 +1,14 @@
 ﻿"""
-Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„ØªØ·Ø¨ÙŠÙ‚
+Application configuration - DyeMaster Pro.
 """
 import os
 import sys
 from pathlib import Path
 
 
-# â”€â”€ Version resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+# -----------------------------------------------------------------------------
+# Version resolution
+# -----------------------------------------------------------------------------
 def _resolve_version_file_path() -> str:
     """
     Find version.txt regardless of how the app is run:
@@ -28,7 +30,7 @@ def _resolve_version_file_path() -> str:
         if os.path.exists(candidate):
             return candidate
 
-        # 2. Check inside _MEIPASS (bundled at build time â€“ onefile & onedir)
+        # 2. Check inside _MEIPASS (bundled at build time - onefile & onedir)
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             candidate = os.path.join(meipass, "version.txt")
@@ -61,7 +63,9 @@ APP_VERSION = _resolve_app_version()
 APP_DISPLAY_NAME = "DyeMaster Pro"
 APP_ID = "DyeMasterPro"
 
-# â”€â”€ Data directories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+# -----------------------------------------------------------------------------
+# Data directories
+# -----------------------------------------------------------------------------
 # Use LOCALAPPDATA so data survives app re-installs and avoids UAC issues.
 _base_data_dir = os.environ.get("LOCALAPPDATA", str(Path.home()))
 USER_DATA_DIR  = os.path.join(_base_data_dir, APP_ID)
@@ -71,7 +75,9 @@ BACKUP_DIR     = os.path.join(USER_DATA_DIR, "backups")
 LOG_DIR        = os.path.join(USER_DATA_DIR, "logs")
 DATABASE_FILE  = os.path.join(DATA_DIR, "dyemasterpro.db")
 
-# â”€â”€ Dye types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+# -----------------------------------------------------------------------------
+# Dye types
+# -----------------------------------------------------------------------------
 DYE_TYPES = [
     "Indanthren IN",
     "Indanthren IN SP",
@@ -85,7 +91,9 @@ DYE_TYPES = [
     "Reattivi Oltri",
 ]
 
-# â”€â”€ PDF settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+# -----------------------------------------------------------------------------
+# PDF settings
+# -----------------------------------------------------------------------------
 PDF_SETTINGS = {
     "page_size":        "A4",
     "margin":           20,
@@ -97,7 +105,9 @@ PDF_SETTINGS = {
 
 # Logging settings removed - reverted to original
 
-# â”€â”€ GUI settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+# -----------------------------------------------------------------------------
+# GUI settings
+# -----------------------------------------------------------------------------
 GUI_SETTINGS = {
     "window_title": APP_DISPLAY_NAME,
     "window_size":  "1200x700",
@@ -105,4 +115,7 @@ GUI_SETTINGS = {
     "font_family":  "Arial",
     "font_size":    10,
 }
+
+# Backwards-compat: older code expects this name.
+MAIN_WINDOW_SIZE = GUI_SETTINGS["window_size"]
 

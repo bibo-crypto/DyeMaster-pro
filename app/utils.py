@@ -2,8 +2,10 @@
 دوال مساعدة
 """
 import math
+import os
 from typing import Any
 from datetime import datetime
+from pathlib import Path
 
 
 def _is_missing(value: Any) -> bool:
@@ -152,6 +154,60 @@ def format_percentage(value: float) -> str:
 def get_current_timestamp() -> str:
     """الحصول على الطابع الزمني الحالي"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_desktop_dir() -> str:
+    """
+    Return a best-effort Desktop path for the current user (portable across PCs).
+
+    On Windows, the Desktop may be redirected (e.g. OneDrive). We try common
+    environment locations first, then fall back to `~\\Desktop` (creating it if
+    needed). If everything fails, fall back to the app data export directory.
+    """
+    candidates: list[str] = []
+
+    user_profile = os.environ.get("USERPROFILE")
+    if user_profile:
+        candidates.append(os.path.join(user_profile, "Desktop"))
+
+    one_drive = os.environ.get("OneDrive")
+    if one_drive:
+        candidates.append(os.path.join(one_drive, "Desktop"))
+
+    home = str(Path.home())
+    if home:
+        candidates.append(os.path.join(home, "Desktop"))
+
+    for path in candidates:
+        try:
+            if path and os.path.isdir(path):
+                return path
+        except Exception:
+            continue
+
+    # If none exists, attempt to create `~/Desktop` (common on many systems).
+    try:
+        fallback = os.path.join(home, "Desktop")
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+    except Exception:
+        pass
+
+    # Last resort: app data export dir.
+    try:
+        from app.config import EXPORT_DIR
+        os.makedirs(EXPORT_DIR, exist_ok=True)
+        return EXPORT_DIR
+    except Exception:
+        return os.getcwd()
+
+
+def get_desktop_exports_dir(subfolder: str = "DyeMasterPro_Exports") -> str:
+    """Return (and create) the default exports folder under Desktop."""
+    desktop = get_desktop_dir()
+    export_dir = os.path.join(desktop, subfolder)
+    os.makedirs(export_dir, exist_ok=True)
+    return export_dir
 
 
 

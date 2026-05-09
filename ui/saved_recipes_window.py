@@ -1,4 +1,4 @@
-﻿"""
+"""
 نافذة عرض الريتشتات المحفوظة
 """
 import tkinter as tk
@@ -8,23 +8,15 @@ from typing import Optional
 from app.database import DatabaseManager
 from app.pdf_exporter import PDFExporter
 from app.session import SessionManager
+from ui.programs_window import ProgramsWindow
 from ui.theme_tokens import (
     setup_tree_tags, zebra_insert,
     get_theme_tokens, apply_excel_treeview_style, configure_sub_button_style,
-    BOLD_FONT,
+    BOLD_FONT, show_on_top,
 )
 
 
-def _show_on_top(window, parent):
-    """Make child windows modal and keep them above parent."""
-    try:
-        window.lift()
-        window.focus_force()
-        window.grab_set()
-        window.attributes("-topmost", True)
-        window.after(250, lambda: window.attributes("-topmost", False))
-    except Exception:
-        pass
+
 
 
 class SavedRecipesWindow:
@@ -41,7 +33,7 @@ class SavedRecipesWindow:
         self.all_recipes_data = []  # تخزين جميع بيانات الريتشتات للبحث
 
         self.window = tk.Toplevel(parent)
-        _show_on_top(self.window, parent)
+        show_on_top(self.window, parent)
         self.window.title("Saved Recipes - Ricette")
         self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
         
@@ -330,8 +322,11 @@ class SavedRecipesWindow:
         button_frame = ttk.Frame(control_frame)
         button_frame.pack(fill=tk.X, pady=2)
 
-        ttk.Button(button_frame, text="Export to PDF",
-                   command=self.export_selected_recipe, width=15, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Export Recipe PDF",
+                   command=self.export_selected_recipe, width=21, style='Sub.TButton').pack(side=tk.LEFT, padx=8)
+
+        ttk.Button(button_frame, text="🌡  Dyeing Curve",
+                   command=self.show_dyeing_curve, width=18, style='Sub.TButton').pack(side=tk.LEFT, padx=8)
 
         self.edit_recipe_button = ttk.Button(
             button_frame,
@@ -340,7 +335,7 @@ class SavedRecipesWindow:
             width=15,
             style='Sub.TButton'
         )
-        self.edit_recipe_button.pack(side=tk.LEFT, padx=5)
+        self.edit_recipe_button.pack(side=tk.LEFT, padx=8)
         if not self.session.has_permission("can_edit"):
             self.edit_recipe_button.state(["disabled"])
 
@@ -353,15 +348,15 @@ class SavedRecipesWindow:
             width=15,
             style='Sub.TButton'
         )
-        self.delete_recipe_button.pack(side=tk.LEFT, padx=5)
+        self.delete_recipe_button.pack(side=tk.LEFT, padx=8)
         if not self.session.has_permission("can_delete"):
             self.delete_recipe_button.state(["disabled"])
 
         ttk.Button(button_frame, text="Refresh",
-                   command=self.refresh_recipes, width=15, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
+                   command=self.refresh_recipes, width=15, style='Sub.TButton').pack(side=tk.LEFT, padx=8)
 
         ttk.Button(button_frame, text="Close",
-                   command=self._on_window_close, width=15, style='Sub.TButton').pack(side=tk.RIGHT, padx=5)
+                   command=self._on_window_close, width=15, style='Sub.TButton').pack(side=tk.RIGHT, padx=8)
 
     # باقي الدوال تبقى كما هي (دون تغيير)
     # load_recipes, perform_search, reset_search, display_recipes, select_recipe_by_id
@@ -628,7 +623,7 @@ class SavedRecipesWindow:
         dialog.title("Edit Recipe")
         dialog.resizable(False, False)
         dialog.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
-        _show_on_top(dialog, self.window)
+        show_on_top(dialog, self.window)
 
         # Centre the dialog over the parent window
         dialog.update_idletasks()
@@ -768,6 +763,25 @@ class SavedRecipesWindow:
         # عرض البيانات المرتبة
         self.display_recipes(sorted_data)
 
+    def show_dyeing_curve(self):
+        """فتح صفحة Programs مع تحديد الوصفة الحالية"""
+        if not hasattr(self, 'current_recipe_data') or not self.current_recipe_data:
+            messagebox.showwarning(
+                "No Recipe Selected",
+                "Please select a recipe from the list first.",
+                parent=self.window
+            )
+            return
+        pw = ProgramsWindow(
+            parent=self.window,
+            db=self.db,
+            dark_mode=self.dark_mode
+        )
+        # Auto-select the current recipe in the Programs window
+        recipe_id = self.current_recipe_data.get("id")
+        if recipe_id:
+            pw.window.after(300, lambda: pw.show_recipe_program(recipe_id))
+ 
     def refresh_recipes(self):
         """تحديث قائمة الريتشتات"""
         self.load_recipes()

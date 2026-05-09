@@ -3,11 +3,18 @@
 """
 import tkinter as tk
 from tkinter import messagebox
+import os
+from datetime import datetime
 from app.session import SessionManager
+from app.database import DatabaseManager
+from app.utils import get_desktop_exports_dir
 
 
 class LoginWindow:
     """شاشة تسجيل الدخول"""
+
+    # Fixed emergency reset code (letters/numbers only). Deliver this to the client.
+    RESET_ALL_CODE = "__REDACTED__"
     
     def __init__(self, root, on_success_callback):
         self.root = root
@@ -73,14 +80,26 @@ class LoginWindow:
                              font=("Arial", 11, "bold"), bg="#3498db", fg="white",
                              relief="flat", padx=20, pady=5, cursor="hand2")
         login_btn.pack(side="right", padx=(10, 0))
+
+        reset_btn = tk.Button(
+            button_frame,
+            text="Reset All Passwords",
+            command=self.reset_all_passwords,
+            font=("Arial", 9, "bold"),
+            bg="#e67e22",
+            fg="white",
+            relief="flat",
+            padx=12,
+            pady=5,
+            cursor="hand2",
+        )
+        reset_btn.pack(side="left", padx=(0, 10))
         
         # ربط Enter
         self.root.bind('<Return>', lambda e: self.login())
         
-        # labels المستخدمين الافتراضيين
-        info_label = tk.Label(main_frame, text="Default: admin/__DEFAULT__ | tech/__DEFAULT__ | viewer/__DEFAULT__", 
-                             font=("Arial", 9), fg="#95a5a6", bg="#2c3e50")
-        info_label.pack(pady=(20, 0))
+        # Note: Default credentials are documented in the admin guide
+        # Not displayed in UI for security reasons
     
     def login(self):
         """معالج تسجيل الدخول"""
@@ -99,3 +118,98 @@ class LoginWindow:
             messagebox.showerror("Error", "Invalid username or password!")
             self.password_var.set("")
             self.username_var.set("")
+
+    def reset_all_passwords(self):
+        """Emergency: restore default system users (admin/tech/viewer) if code matches."""
+        entered = ResetCodeDialog.ask(self.root)
+        if entered is None:
+            return
+        if entered.strip() != self.RESET_ALL_CODE:
+            messagebox.showerror("Denied", "Invalid reset code.", parent=self.root)
+            return
+
+        if messagebox.askyesno(
+            "Confirm",
+            "This will restore default system users passwords:\n"
+            "admin/__DEFAULT__\ntech/__DEFAULT__\nviewer/__DEFAULT__\n\nContinue?",
+            parent=self.root,
+        ) is not True:
+            return
+
+        db = DatabaseManager()
+        ok = db.reset_default_system_users()
+        if not ok:
+            messagebox.showerror("Error", "Password reset failed.", parent=self.root)
+            return
+
+        messagebox.showinfo(
+            "Done",
+            "Default system users restored:\n\n"
+            "admin / __DEFAULT__\n"
+            "tech  / __DEFAULT__\n"
+            "viewer / __DEFAULT__\n\n"
+            "Other users were NOT changed.",
+            parent=self.root,
+        )
+
+
+class ResetCodeDialog:
+    """Small dialog that makes copy/paste easy for reset-code entry."""
+
+    @staticmethod
+    def ask(parent) -> str | None:
+        win = tk.Toplevel(parent)
+        win.title("Reset All Passwords")
+        win.grab_set()
+        win.resizable(False, False)
+
+        result = {"value": None}
+
+        frame = tk.Frame(win, padx=14, pady=12)
+        frame.pack(fill="both", expand=True)
+
+        tk.Label(frame, text="Enter reset code (letters/numbers):").pack(anchor="w")
+
+        code_var = tk.StringVar()
+        entry = tk.Entry(frame, textvariable=code_var, width=34)
+        entry.pack(fill="x", pady=(6, 10))
+        entry.focus_set()
+
+        btns = tk.Frame(frame)
+        btns.pack(fill="x")
+
+        def do_paste():
+            try:
+                text = parent.clipboard_get()
+                code_var.set((text or "").strip())
+                entry.icursor(tk.END)
+            except Exception:
+                pass
+
+        def do_ok():
+            result["value"] = code_var.get().strip()
+            win.destroy()
+
+        def do_cancel():
+            result["value"] = None
+            win.destroy()
+
+        tk.Button(btns, text="Paste", command=do_paste, width=10).pack(side="left")
+        tk.Button(btns, text="Cancel", command=do_cancel, width=10).pack(side="right", padx=(8, 0))
+        tk.Button(btns, text="OK", command=do_ok, width=10).pack(side="right")
+
+        win.bind("<Return>", lambda _e: do_ok())
+        win.bind("<Escape>", lambda _e: do_cancel())
+        win.transient(parent)
+        win.update_idletasks()
+        # Center on parent
+        try:
+            px, py = parent.winfo_rootx(), parent.winfo_rooty()
+            pw, ph = parent.winfo_width(), parent.winfo_height()
+            ww, wh = win.winfo_width(), win.winfo_height()
+            win.geometry(f"+{px + (pw - ww)//2}+{py + (ph - wh)//2}")
+        except Exception:
+            pass
+
+        parent.wait_window(win)
+        return result["value"]

@@ -1,8 +1,8 @@
 """PDF export utilities."""
 import os
 from datetime import datetime
-from tkinter import filedialog
 from app.lab_settings import load_lab_settings
+from app.utils import get_desktop_exports_dir
 
 try:
     from reportlab.lib import colors
@@ -330,9 +330,7 @@ class PDFExporter:
             recipe_code = PDFExporter._sanitize_filename(getattr(recipe_details.recipe, "recipe_code", "NoCode") or "NoCode")
 
             if not output_path:
-                folder = filedialog.askdirectory(title="Select folder to save PDF", parent=parent_window)
-                if not folder:
-                    return None
+                folder = get_desktop_exports_dir()
                 output_path = os.path.join(folder, f"Recipe_{recipe_code}_{recipe_name}_{timestamp}.pdf")
             else:
                 folder = os.path.dirname(output_path)
@@ -354,9 +352,7 @@ class PDFExporter:
             return None
 
         try:
-            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-            export_folder = os.path.join(desktop, "DyeMasterPro_Exports")
-            os.makedirs(export_folder, exist_ok=True)
+            export_folder = get_desktop_exports_dir()
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             recipe_name = PDFExporter._sanitize_filename(getattr(recipe_details.recipe, "name", "Recipe") or "Recipe")
@@ -377,9 +373,7 @@ class PDFExporter:
                 return None
 
             if not output_folder:
-                output_folder = filedialog.askdirectory(title="Select folder to save PDF")
-                if not output_folder:
-                    return None
+                output_folder = get_desktop_exports_dir()
 
             os.makedirs(output_folder, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

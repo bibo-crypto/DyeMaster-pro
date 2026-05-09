@@ -9,6 +9,7 @@ from importlib import import_module
 __all__ = [
     "ActiveColorsWindow",
     "ColorsInUseWindow",
+    "ProgramsWindow",
     "RecipeCreatorWindow",
     "SavedRecipesWindow",
 ]
@@ -17,6 +18,7 @@ __all__ = [
 _LAZY_EXPORTS = {
     "ActiveColorsWindow": "ui.active_colors_window",
     "ColorsInUseWindow": "ui.active_colors_window",
+    "ProgramsWindow": "ui.programs_window",
     "RecipeCreatorWindow": "ui.recipe_creator_window",
     "SavedRecipesWindow": "ui.saved_recipes_window",
 }

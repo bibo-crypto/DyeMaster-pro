@@ -1,4 +1,4 @@
-﻿"""
+"""
 Session and permission manager - DyeMaster Pro
 """
 import hashlib
@@ -44,12 +44,14 @@ class SessionManager:
     def __init__(self):
         self.current_user = None
         self.db = DatabaseManager()
+        self._perm_overrides = {}
 
     def login(self, username: str, password: str) -> bool:
         """Authenticate user and open session."""
         user = self.db.get_user_by_username(username)
         if user and self._verify_password(password, user.password_hash):
             self.current_user = user
+            self._perm_overrides = self.db.get_user_permission_overrides(user.id) if user.id else {}
             self.db.update_user_last_login(user.id)
             return True
         return False
@@ -57,6 +59,7 @@ class SessionManager:
     def logout(self):
         """Close current session."""
         self.current_user = None
+        self._perm_overrides = {}
 
     def _verify_password(self, password: str, hash_str: str) -> bool:
         """Verify password hash (SHA256)."""
@@ -74,9 +77,25 @@ class SessionManager:
         """Check whether current user has a specific permission."""
         if not self.current_user:
             return False
+        if permission in self._perm_overrides:
+            return bool(self._perm_overrides.get(permission))
         role = self._normalize_role(self.current_user.role)
         role_perms = self.ROLES.get(role, {})
         return role_perms.get(permission, False)
+
+    def refresh_permissions(self) -> None:
+        """Reload per-user overrides + full user object from the database."""
+        if not self.current_user:
+            self._perm_overrides = {}
+            return
+        try:
+            # Reload full user record in case username/role/active changed
+            fresh_user = self.db.get_user_by_id(self.current_user.id)
+            if fresh_user:
+                self.current_user = fresh_user
+            self._perm_overrides = self.db.get_user_permission_overrides(self.current_user.id)
+        except Exception:
+            self._perm_overrides = {}
 
     def get_current_role(self) -> str:
         """Return normalized current role."""

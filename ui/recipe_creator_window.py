@@ -1,4 +1,4 @@
-﻿"""
+"""
 نافذة إنشاء وصفة جديدة
 """
 import tkinter as tk
@@ -12,19 +12,10 @@ from app.utils import clean_recipe_code, validate_recipe_code_input, get_current
 from app.models import Recipe
 from app.config import DYE_TYPES
 from app.lab_settings import load_lab_settings, save_lab_settings
-from ui.theme_tokens import configure_sub_button_style, setup_tree_tags, zebra_insert, get_theme_tokens, apply_excel_treeview_style
+from ui.theme_tokens import configure_sub_button_style, setup_tree_tags, zebra_insert, get_theme_tokens, apply_excel_treeview_style, show_on_top
 
 
-def _show_on_top(window, parent):
-    """Make child windows modal and keep them above parent."""
-    try:
-        window.lift()
-        window.focus_force()
-        window.grab_set()
-        window.attributes("-topmost", True)
-        window.after(250, lambda: window.attributes("-topmost", False))
-    except Exception:
-        pass
+
 
 
 class RecipeCreatorWindow:
@@ -39,14 +30,20 @@ class RecipeCreatorWindow:
         self.reattivi_colors = []  # تخزين ألوان Reattivi (Caldi + Freddi + Other)
 
         self.window = tk.Toplevel(parent)
-        _show_on_top(self.window, parent)
+        show_on_top(self.window, parent)
         self.window.title("Create New Recipe")
         
-        # ضبط أبعاد النافذة لتكون متجاوبة
+        # ضبط أبعاد النافذة لتكون متجاوبة مع حد أدنى معقول
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
+        # Ensure minimum screen dimensions
+        screen_width = max(screen_width, 1024)
+        screen_height = max(screen_height, 768)
         width = int(screen_width * 0.9)
         height = int(screen_height * 0.88)
+        # Apply bounds
+        width = max(980, width)
+        height = max(780, height)
         x = (screen_width - width) // 2
         y = (screen_height - height) // 2
         
@@ -544,7 +541,7 @@ class RecipeCreatorWindow:
                     "resa_percent": float(color[6]) if len(color) > 6 and color[6] not in (None, '') else 100.0,
                     "created_at": str(color[7]) if len(color) > 7 else ''
                 }
-        except:
+        except Exception:
             return None
 
     def _normalize_resa_percent(self, resa_percent) -> float:
@@ -659,7 +656,7 @@ class RecipeCreatorWindow:
 
         # نافذة الإدخال
         input_win = tk.Toplevel(self.window)
-        _show_on_top(input_win, self.window)
+        show_on_top(input_win, self.window)
         input_win.title(f"Add {color_data[0]}")
         input_win.geometry("300x150")
         input_win.grab_set()
@@ -680,7 +677,7 @@ class RecipeCreatorWindow:
                 if percentage <= 0:
                     raise ValueError
 
-                self.add_color_to_recipe(color_data, percentage)  # ✅ ستستدعي update_chemicals تلقائياً
+                self.add_color_to_recipe(color_data, percentage)  # [OK] ستستدعي update_chemicals تلقائياً
                 input_win.destroy()
                 # لا حاجة لاستدعاء update_chemicals هنا
 
@@ -717,7 +714,7 @@ class RecipeCreatorWindow:
             return
 
         color_data = active_tree.item(active_tree.selection()[0], "values")
-        self.add_color_to_recipe(color_data, percentage)  # ✅ ستستدعي update_chemicals تلقائياً
+        self.add_color_to_recipe(color_data, percentage)  # [OK] ستستدعي update_chemicals تلقائياً
 
         self.percentage_entry.delete(0, tk.END)
 
@@ -761,7 +758,7 @@ class RecipeCreatorWindow:
         price_text = color_data[4].replace('€', '').strip()
         try:
             price = float(price_text)
-        except:
+        except Exception:
             price = 0.0
 
         self.selected_colors.append({
@@ -1031,7 +1028,7 @@ class RecipeCreatorWindow:
         chemicals = ChemicalCalculator.calculate_chemicals(total_percentage, dominant_type)
 
         chem_win = tk.Toplevel(self.window)
-        _show_on_top(chem_win, self.window)
+        show_on_top(chem_win, self.window)
         chem_win.title("Chemical Requirements Details")
         chem_win.geometry("500x400")
         chem_win.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
@@ -1102,3 +1099,4 @@ class RecipeCreatorWindow:
 
         self.display_colors(self.indanthren_tree, indanthren_samples)
         self.display_colors(self.reattivi_tree, reattivi_samples)
+

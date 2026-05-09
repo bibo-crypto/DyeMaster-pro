@@ -29,8 +29,8 @@ def _configure_stdout_for_unicode() -> None:
     try:
         if hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception as e:
-        logger_test.debug(f"Stdout reconfigure failed: {e}")
+    except Exception:
+        pass  # Silently ignore stdout reconfiguration failures
 
 
 _configure_stdout_for_unicode()
@@ -86,13 +86,13 @@ class SystemTester:
                 print(f"\n🔍 تشغيل: {test_name}")
                 result = test_func()
                 if result:
-                    self.test_results.append((test_name, "✅ نجح"))
-                    print(f"   ✅ {test_name} - نجح")
+                    self.test_results.append((test_name, "[OK] نجح"))
+                    print(f"   [OK] {test_name} - نجح")
                 else:
-                    self.test_results.append((test_name, "❌ فشل"))
-                    print(f"   ❌ {test_name} - فشل")
+                    self.test_results.append((test_name, "[FAIL] فشل"))
+                    print(f"   [FAIL] {test_name} - فشل")
             except Exception as e:
-                self.test_results.append((test_name, f"❌ خطأ: {str(e)}"))
+                self.test_results.append((test_name, f"[FAIL] خطأ: {str(e)}"))
                 self.errors.append((test_name, str(e), traceback.format_exc()))
                 print(f"   💥 {test_name} - خطأ: {str(e)}")
 
@@ -145,7 +145,7 @@ class SystemTester:
                     missing_tables.append(table)
 
             if missing_tables:
-                print(f"   ⚠️ الجداول الناقصة: {missing_tables}")
+                print(f"   [WARN] الجداول الناقصة: {missing_tables}")
                 return False
 
             print(f"   📋 الجداول الموجودة: {existing_tables}")
@@ -175,7 +175,7 @@ class SystemTester:
             color_id = self.db.add_color(test_color)
 
             if color_id <= 0:
-                print("   ❌ فشل إضافة اللون")
+                print("   [FAIL] فشل إضافة اللون")
                 return False
 
             print(f"   ➕ تم إضافة لون اختبار (ID: {color_id})")
@@ -183,11 +183,11 @@ class SystemTester:
             # اختبار القراءة
             retrieved_color = self.db.get_color_by_code("TEST001")
             if not retrieved_color or retrieved_color.name != "Test Color Red":
-                print("   ❌ فشل قراءة اللون")
+                print("   [FAIL] فشل قراءة اللون")
                 self.db.delete_color(color_id)
                 return False
 
-            print("   👁️ تم قراءة اللون بنجاح")
+            print("   View تم قراءة اللون بنجاح")
 
             # اختبار التعديل
             updated_color = Color(
@@ -204,11 +204,11 @@ class SystemTester:
 
             success = self.db.update_color(updated_color)
             if not success:
-                print("   ❌ فشل تعديل اللون")
+                print("   [FAIL] فشل تعديل اللون")
                 self.db.delete_color(color_id)
                 return False
 
-            print("   ✏️ تم تعديل اللون بنجاح")
+            print("   Edit تم تعديل اللون بنجاح")
 
             # اختبار الحذف
             self.db.delete_color(color_id)
@@ -216,10 +216,10 @@ class SystemTester:
             # التحقق من الحذف
             deleted_color = self.db.get_color_by_code("TEST001")
             if deleted_color:
-                print("   ❌ فشل حذف اللون")
+                print("   [FAIL] فشل حذف اللون")
                 return False
 
-            print("   🗑️ تم حذف اللون بنجاح")
+            print("   Delete تم حذف اللون بنجاح")
             return True
 
         except Exception as e:
@@ -229,7 +229,7 @@ class SystemTester:
                 color_to_delete = self.db.get_color_by_code("TEST001")
                 if color_to_delete:
                     self.db.delete_color(color_to_delete.id)
-            except:
+            except Exception:
                 pass
             return False
 
@@ -276,7 +276,7 @@ class SystemTester:
             color2_id = self.db.add_color(color2)
 
             if color1_id <= 0 or color2_id <= 0:
-                print("   ❌ فشل إنشاء ألوان الاختبار")
+                print("   [FAIL] فشل إنشاء ألوان الاختبار")
                 return False
 
             print(f"   ➕ تم إنشاء ألوان اختبار (IDs: {color1_id}, {color2_id})")
@@ -320,7 +320,7 @@ class SystemTester:
             recipe_id = self.db.add_recipe(test_recipe, selected_colors, chemicals)
 
             if recipe_id <= 0:
-                print("   ❌ فشل إضافة الوصفة")
+                print("   [FAIL] فشل إضافة الوصفة")
                 return False
 
             print(f"   ➕ تم إضافة وصفة اختبار (ID: {recipe_id})")
@@ -328,15 +328,15 @@ class SystemTester:
             # 3. اختبار قراءة الوصفة
             recipe_details = self.db.get_recipe_details(recipe_id)
             if not recipe_details:
-                print("   ❌ فشل قراءة تفاصيل الوصفة")
+                print("   [FAIL] فشل قراءة تفاصيل الوصفة")
                 return False
 
-            print("   👁️ تم قراءة تفاصيل الوصفة بنجاح")
-            print(f"   ℹ️ عدد الألوان في الوصفة: {len(recipe_details['colors'])}")
-            print(f"   ℹ️ التكلفة الإجمالية: €{recipe_details['total_cost']:.2f}")
+            print("   View تم قراءة تفاصيل الوصفة بنجاح")
+            print(f"   Info عدد الألوان في الوصفة: {len(recipe_details['colors'])}")
+            print(f"   Info التكلفة الإجمالية: €{recipe_details['total_cost']:.2f}")
 
             # 4. اختبار الحذف
-            print("   🗑️ جاري حذف الوصفة...")
+            print("   Delete جاري حذف الوصفة...")
             self.db.delete_recipe(recipe_id)
 
             # التحقق من الحذف
@@ -352,17 +352,17 @@ class SystemTester:
             conn.close()
 
             if recipe_exists:
-                print("   ❌ فشل حذف الوصفة (السجل الرئيسي)")
+                print("   [FAIL] فشل حذف الوصفة (السجل الرئيسي)")
                 return False
                 
             if colors_exist:
-                print("   ❌ فشل حذف الوصفة (لم يتم حذف الألوان المرتبطة)")
+                print("   [FAIL] فشل حذف الوصفة (لم يتم حذف الألوان المرتبطة)")
                 return False
 
-            print("   ✅ تم حذف الوصفة بنجاح")
+            print("   [OK] تم حذف الوصفة بنجاح")
 
             # 5. حذف الألوان
-            print("   🗑️ جاري حذف ألوان الاختبار...")
+            print("   Delete جاري حذف ألوان الاختبار...")
 
             # حذف باستخدام الكود بدلاً من الـ ID (أكثر أماناً)
             color1_to_delete = self.db.get_color_by_code(color1_code)
@@ -370,21 +370,21 @@ class SystemTester:
 
             if color1_to_delete:
                 self.db.delete_color(color1_to_delete.id)
-                print(f"   ✅ تم حذف اللون: {color1_code}")
+                print(f"   [OK] تم حذف اللون: {color1_code}")
 
             if color2_to_delete:
                 self.db.delete_color(color2_to_delete.id)
-                print(f"   ✅ تم حذف اللون: {color2_code}")
+                print(f"   [OK] تم حذف اللون: {color2_code}")
 
             # التحقق النهائي
             final_check1 = self.db.get_color_by_code(color1_code)
             final_check2 = self.db.get_color_by_code(color2_code)
 
             if final_check1 or final_check2:
-                print("   ⚠️ بعض ألوان الاختبار لا تزال موجودة")
+                print("   [WARN] بعض ألوان الاختبار لا تزال موجودة")
                 return False
 
-            print("   ✅ تم تنظيف جميع بيانات الاختبار بنجاح")
+            print("   [OK] تم تنظيف جميع بيانات الاختبار بنجاح")
             return True
 
         except Exception as e:
@@ -395,7 +395,7 @@ class SystemTester:
             # محاولة تنظيف في حالة الخطأ
             try:
                 self.cleanup_test_data()
-            except:
+            except Exception:
                 pass
 
             return False
@@ -411,7 +411,7 @@ class SystemTester:
             test_recipes = cursor.fetchall()
 
             for recipe_id, recipe_code in test_recipes:
-                print(f"   🗑️ حذف وصفة اختبار: {recipe_code}")
+                print(f"   Delete حذف وصفة اختبار: {recipe_code}")
                 # حذف أولاً من جدول recipe_colors
                 cursor.execute("DELETE FROM recipe_colors WHERE recipe_id = ?", (recipe_id,))
                 # ثم حذف الوصفة
@@ -422,16 +422,16 @@ class SystemTester:
             test_colors = cursor.fetchall()
 
             for color_id, color_code in test_colors:
-                print(f"   🗑️ حذف لون اختبار: {color_code}")
+                print(f"   Delete حذف لون اختبار: {color_code}")
                 cursor.execute("DELETE FROM colors WHERE id = ?", (color_id,))
 
             conn.commit()
             conn.close()
 
-            print("   ✅ تم تنظيف بيانات الاختبار بنجاح")
+            print("   [OK] تم تنظيف بيانات الاختبار بنجاح")
 
         except Exception as e:
-            print(f"   ⚠️ خطأ في تنظيف بيانات الاختبار: {e}")
+            print(f"   [WARN] خطأ في تنظيف بيانات الاختبار: {e}")
 
     def cleanup_test_colors(self, color_ids):
         """تنظيف ألوان الاختبار"""
@@ -446,19 +446,19 @@ class SystemTester:
 
                 if count > 0:
                     self.db.delete_color(color_id)
-                    print(f"   🗑️ تم حذف اللون ID: {color_id}")
+                    print(f"   Delete تم حذف اللون ID: {color_id}")
                 else:
-                    print(f"   ℹ️ اللون ID: {color_id} غير موجود (ربما تم حذفه مسبقاً)")
+                    print(f"   Info اللون ID: {color_id} غير موجود (ربما تم حذفه مسبقاً)")
 
             except Exception as e:
-                print(f"   ⚠️ خطأ في حذف اللون {color_id}: {e}")
+                print(f"   [WARN] خطأ في حذف اللون {color_id}: {e}")
 
     def cleanup_test_recipe(self, recipe_id, color_ids):
         """تنظيف وصفة الاختبار"""
         try:
             self.db.delete_recipe(recipe_id)
             self.cleanup_test_colors(color_ids)
-        except:
+        except Exception:
             pass
 
     def test_chemical_calculations(self):
@@ -467,7 +467,7 @@ class SystemTester:
             # اختبار حساب كيماويات INDANTHREN
             chemicals_ind = ChemicalCalculator.calculate_chemicals(2.5, "INDANTHREN")
             if not chemicals_ind or len(chemicals_ind) == 0:
-                print("   ❌ فشل حساب كيماويات INDANTHREN")
+                print("   [FAIL] فشل حساب كيماويات INDANTHREN")
                 return False
 
             print(f"   🧪 كيماويات INDANTHREN: {len(chemicals_ind)} عنصر")
@@ -475,7 +475,7 @@ class SystemTester:
             # اختبار حساب كيماويات REATTIVI CALDI
             chemicals_caldi = ChemicalCalculator.calculate_chemicals(1.8, "REATTIVI CALDI")
             if not chemicals_caldi or len(chemicals_caldi) == 0:
-                print("   ❌ فشل حساب كيماويات REATTIVI CALDI")
+                print("   [FAIL] فشل حساب كيماويات REATTIVI CALDI")
                 return False
 
             print(f"   🧪 كيماويات REATTIVI CALDI: {len(chemicals_caldi)} عنصر")
@@ -483,7 +483,7 @@ class SystemTester:
             # اختبار حساب كيماويات REATTIVI FREDDI
             chemicals_freddi = ChemicalCalculator.calculate_chemicals(3.2, "REATTIVI FREDDI")
             if not chemicals_freddi or len(chemicals_freddi) == 0:
-                print("   ❌ فشل حساب كيماويات REATTIVI FREDDI")
+                print("   [FAIL] فشل حساب كيماويات REATTIVI FREDDI")
                 return False
 
             print(f"   🧪 كيماويات REATTIVI FREDDI: {len(chemicals_freddi)} عنصر")
@@ -512,7 +512,7 @@ class SystemTester:
             recipe_cost = CostCalculator.calculate_recipe_cost(test_colors)
 
             if recipe_cost <= 0:
-                print("   ❌ فشل حساب تكلفة الوصفة")
+                print("   [FAIL] فشل حساب تكلفة الوصفة")
                 return False
 
             print(f"   💰 تكلفة الوصفة: €{recipe_cost:.2f}")
@@ -523,7 +523,7 @@ class SystemTester:
 
             # حساب مع الهالك
             waste_cost = CostCalculator.calculate_with_waste(recipe_cost, 10)
-            print(f"   ♻️  التكلفة مع 10% هالك: €{waste_cost:.2f}")
+            print(f"   Recycle  التكلفة مع 10% هالك: €{waste_cost:.2f}")
 
             return True
 
@@ -553,7 +553,7 @@ class SystemTester:
             for code, expected in test_codes.items():
                 cleaned = clean_recipe_code(code)
                 if cleaned != expected:
-                    print(f"   ⚠️ clean_recipe_code: Input '{code}' -> Actual '{cleaned}', Expected '{expected}'")
+                    print(f"   [WARN] clean_recipe_code: Input '{code}' -> Actual '{cleaned}', Expected '{expected}'")
                     clean_code_passed = False
             
             if not clean_code_passed:
@@ -578,7 +578,7 @@ class SystemTester:
             for input_val, expected_valid in validation_tests.items():
                 valid, message = validate_recipe_code_input(input_val)
                 if valid != expected_valid:
-                    print(f"   ⚠️ validate_recipe_code_input: Input '{input_val}' -> Actual '{valid}', Expected '{expected_valid}' - Msg: {message}")
+                    print(f"   [WARN] validate_recipe_code_input: Input '{input_val}' -> Actual '{valid}', Expected '{expected_valid}' - Msg: {message}")
                     validation_passed = False
             
             if not validation_passed:
@@ -593,7 +593,7 @@ class SystemTester:
             if formatted == "€45.50":
                 print("     ✓ format_currency works as expected.")
             else:
-                print(f"   ⚠️ format_currency: -> Actual '{formatted}', Expected '€45.50'")
+                print(f"   [WARN] format_currency: -> Actual '{formatted}', Expected '€45.50'")
                 all_passed = False
 
             # اختبار format_percentage
@@ -603,7 +603,7 @@ class SystemTester:
             if formatted_percent == "2.5%":
                  print("     ✓ format_percentage works as expected.")
             else:
-                print(f"   ⚠️ format_percentage: -> Actual '{formatted_percent}', Expected '2.5%'")
+                print(f"   [WARN] format_percentage: -> Actual '{formatted_percent}', Expected '2.5%'")
                 all_passed = False
 
             return all_passed
@@ -678,12 +678,12 @@ class SystemTester:
                 # تنظيف الملف الاختباري
                 try:
                     os.remove(pdf_path)
-                except:
+                except Exception:
                     pass
 
                 return True
             else:
-                print("   ❌ فشل إنشاء ملف PDF")
+                print("   [FAIL] فشل إنشاء ملف PDF")
                 return False
 
         except Exception as e:
@@ -710,14 +710,14 @@ class SystemTester:
                     color_ids.append(color_id)
 
             if len(color_ids) < 3:
-                print("   ⚠️ لم يتم إضافة جميع ألوان الاختبار")
+                print("   [WARN] لم يتم إضافة جميع ألوان الاختبار")
                 self.cleanup_test_colors(color_ids)
                 return False
 
             # الحصول على جميع الألوان
             all_colors = self.db.get_all_colors()
             if len(all_colors) < 3:
-                print("   ❌ فشل استرجاع الألوان")
+                print("   [FAIL] فشل استرجاع الألوان")
                 self.cleanup_test_colors(color_ids)
                 return False
 
@@ -773,10 +773,10 @@ class SystemTester:
                 # إغلاق النافذة بعد وقت قصير
                 test_window.after(1000, test_window.destroy)
 
-                print("   🖥️  عناصر واجهة المستخدم: ✅")
+                print("   UI  عناصر واجهة المستخدم: [OK]")
                 return True
             else:
-                print("   ⚠️  لا يوجد parent لاختبار واجهة المستخدم")
+                print("   [WARN]  لا يوجد parent لاختبار واجهة المستخدم")
                 return True  # نعتبره ناجحاً إذا لم يكن هناك parent
 
         except Exception as e:
@@ -794,10 +794,10 @@ class SystemTester:
         errors = 0
 
         for test_name, result in self.test_results:
-            if "✅" in result:
+            if "[OK]" in result:
                 passed += 1
                 print(f"{result} {test_name}")
-            elif "❌" in result:
+            elif "[FAIL]" in result:
                 failed += 1
                 print(f"{result} {test_name}")
             else:
@@ -806,8 +806,8 @@ class SystemTester:
 
         print("\n" + "=" * 60)
         print(f"النتيجة النهائية:")
-        print(f"✅ نجح: {passed}")
-        print(f"❌ فشل: {failed}")
+        print(f"[OK] نجح: {passed}")
+        print(f"[FAIL] فشل: {failed}")
         print(f"💥 أخطاء: {errors}")
         print("=" * 60)
 
@@ -825,7 +825,7 @@ class SystemTester:
             print("\n🎉 جميع الاختبارات نجحت! النظام جاهز للاستخدام.")
             return True
         else:
-            print(f"\n⚠️  يوجد {failed} اختبار فاشل و {errors} خطأ.")
+            print(f"\n[WARN]  يوجد {failed} اختبار فاشل و {errors} خطأ.")
             return False
 
     def run_quick_test(self):
@@ -852,9 +852,9 @@ class SystemTester:
                 print(f"\n🔍 {test_names[i]}...")
                 result = test_func()
                 if result:
-                    print(f"   ✅ نجح")
+                    print(f"   [OK] نجح")
                 else:
-                    print(f"   ❌ فشل")
+                    print(f"   [FAIL] فشل")
                     all_passed = False
             except Exception as e:
                 print(f"   💥 خطأ: {e}")
@@ -863,7 +863,7 @@ class SystemTester:
         if all_passed:
             print("\n🎉 الاختبار السريع نجح!")
         else:
-            print("\n⚠️  الاختبار السريع فشل في بعض الأجزاء")
+            print("\n[WARN]  الاختبار السريع فشل في بعض الأجزاء")
 
         return all_passed
 
@@ -952,7 +952,7 @@ def run_tests_from_gui(parent):
         ttk.Button(button_frame, text="⚡ Run Quick Test",
                    command=run_quick_test, width=20).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(button_frame, text="🗑️ Clear Results",
+        ttk.Button(button_frame, text="Delete Clear Results",
                    command=clear_results, width=15).pack(side=tk.LEFT, padx=5)
 
         ttk.Button(button_frame, text="✖ Close",
@@ -992,9 +992,9 @@ if __name__ == "__main__":
 
     # عرض النتائج في messagebox
     if success:
-        messagebox.showinfo("Test Complete", "✅ All tests passed! System is ready.")
+        messagebox.showinfo("Test Complete", "[OK] All tests passed! System is ready.")
     else:
-        messagebox.showwarning("Test Complete", "⚠️ Some tests failed. Check console for details.")
+        messagebox.showwarning("Test Complete", "[WARN] Some tests failed. Check console for details.")
 
     root.destroy()
 
@@ -1014,7 +1014,7 @@ def run_automatic_full_test(parent=None):
         return True
     else:
         print("\n" + "=" * 60)
-        print("⚠️ SOME TESTS FAILED. PLEASE CHECK THE RESULTS.")
+        print("[WARN] SOME TESTS FAILED. PLEASE CHECK THE RESULTS.")
         print("=" * 60)
         return False
 
@@ -1029,11 +1029,13 @@ def run_automatic_quick_test(parent=None):
 
     if success:
         print("\n" + "=" * 60)
-        print("✅ QUICK TEST PASSED!")
+        print("[OK] QUICK TEST PASSED!")
         print("=" * 60)
         return True
     else:
         print("\n" + "=" * 60)
-        print("❌ QUICK TEST FAILED!")
+        print("[FAIL] QUICK TEST FAILED!")
         print("=" * 60)
         return False
+
+

@@ -46,12 +46,9 @@ class DyeMasterProGUI:
             print(f"Icon load failed (normal): {e}")
             
         self.root.after(1, lambda: self.root.state('zoomed'))
-        
-        # Silent update check on startup: ask user to update only when a new version exists.
-        self.root.after(1400, self.check_for_updates_silent)
+        self.root.after(1200, self.check_for_updates_silent)
 
-        # ✅ إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير معرف
-        # ✅ إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير معرف
+        # [OK] إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير مُعرّف
         try:
             # جلب الإعداد من config إذا كان موجوداً
             from app.config import MAIN_WINDOW_SIZE
@@ -92,7 +89,6 @@ class DyeMasterProGUI:
         self.load_data()
         self.root.bind("<FocusIn>", self._on_root_focus_in, add="+")
 
-        # نسخ احتياطي يومي عند التشغيل (مرة واحدة فقط يومياً)
         # نسخ احتياطي يومي عند التشغيل (مرة واحدة فقط يومياً)
         if self._has_permission("can_backup"):
             try:
@@ -201,6 +197,10 @@ class DyeMasterProGUI:
                 self.tools_menu.entryconfig(
                     "Import Data",
                     state=tk.NORMAL if self._has_permission("can_import_data") else tk.DISABLED
+                )
+                self.tools_menu.entryconfig(
+                    "Users & Permissions",
+                    state=tk.NORMAL if self._has_permission("can_manage_users") else tk.DISABLED
                 )
         except Exception:
             pass
@@ -351,6 +351,7 @@ class DyeMasterProGUI:
         menu_bar.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Colors", command=self.show_colors_page)
         view_menu.add_command(label="Recipes", command=self.show_recipes_page)
+        view_menu.add_command(label="Programs", command=self.open_programs_page)
         view_menu.add_command(label="Active Colors", command=self.show_colors_in_use_page)
 
         # قائمة Tools
@@ -367,10 +368,42 @@ class DyeMasterProGUI:
             command=self.import_data,
             state=tk.NORMAL if self._has_permission("can_import_data") else tk.DISABLED
         )
+        tools_menu.add_separator()
+        tools_menu.add_command(
+            label="Users & Permissions",
+            command=self.open_permissions_manager,
+            state=tk.NORMAL if self._has_permission("can_manage_users") else tk.DISABLED
+        )
         # قائمة Help
         help_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="About", command=self.show_about_dialog)
+
+    def open_permissions_manager(self):
+        if not self._has_permission("can_manage_users"):
+            self._deny_permission("manage users")
+            return
+        try:
+            from ui.permissions_window import PermissionsWindow
+            PermissionsWindow(
+                self.root,
+                self.db,
+                self.session,
+                dark_mode=self.dark_mode,
+                on_changed=self._on_permissions_changed,
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open permissions window: {e}")
+
+    def _on_permissions_changed(self):
+        try:
+            self.session.refresh_permissions()
+        except Exception:
+            pass
+        try:
+            self._sync_permissions_ui()
+        except Exception:
+            pass
 
     def show_add_color_form(self):
         """عرض نموذج إضافة لون"""
@@ -389,56 +422,62 @@ class DyeMasterProGUI:
         self.open_recipe_creator()
 
     def show_colors_page(self):
-        """عرض صفحة الألوان"""
-        pass
+        """عرض صفحة الألوان - تحميل الألوان كلها"""
+        self.clear_fields()
+        self.load_data()
 
     def show_recipes_page(self):
-        """عرض صفحة الريتشتات"""
-        pass
+        """عرض صفحة الريتشتات - فتح نافذة الريتشتات المحفوظة"""
+        self.open_saved_recipes()
 
     def show_colors_in_use_page(self):
         """عرض صفحة الألوان المستخدمة"""
         self.open_colors_in_use()
 
     def check_for_updates_silent(self):
-        """تحقق صامت عند التشغيل: يظهر فقط عند وجود تحديث."""
-        if not self._has_permission("can_check_updates"):
-            return
+        """Silent startup update check — runs in background thread to avoid blocking UI."""
+        import threading
+
+        def _check():
+            try:
+                is_update, version, notes, download_info = self.updater.check_for_updates()
+                if is_update:
+                    # Schedule the dialog back on the main thread
+                    self.root.after(0, lambda: self._prompt_update(version, download_info))
+            except Exception as e:
+                print(f"[Updater] Silent check failed: {e}")
+
+        t = threading.Thread(target=_check, daemon=True, name="UpdateChecker")
+        t.start()
+
+    def _prompt_update(self, version: str, download_info):
+        """Called on the main thread after background check finds an update."""
         try:
-            is_update, version, notes, download_info = self.updater.check_for_updates()
-            if not is_update:
-                return
-
-            notes_text = (notes or "").strip() or "No release notes."
-            wants_update = messagebox.askyesno(
+            if not messagebox.askyesno(
                 "Update Available",
-                f"A new version is available: v{version}\n\nRelease notes:\n{notes_text}\n\n"
-                "Do you want to update now?\n"
-                "Choose No to be reminded next time you open the app."
-            )
-            if not wants_update:
+                f"A new version is available: v{version}\n\nDo you want to update now?",
+                parent=self.root,
+            ):
                 return
-
             backup_path = None
             try:
                 backup_path = self.db.backup_database()
             except Exception as e:
-                messagebox.showwarning("Backup Failed", f"Failed to create database backup before update: {e}")
-
+                messagebox.showwarning(
+                    "Backup Failed",
+                    f"Could not create database backup before update:\n{e}\n\nContinue anyway?",
+                    parent=self.root,
+                )
             success = self.updater.download_and_install(
-                download_info,
-                version,
+                download_info, version,
                 parent_window=self.root,
                 db_backup_path=backup_path,
             )
             if success:
-                messagebox.showinfo(
-                    "Update",
-                    "Update downloaded. The app will close now and restart with the new version."
-                )
                 self.root.after(200, self.root.destroy)
         except Exception as e:
-            print(f"Silent update check failed: {e}")
+            messagebox.showerror("Update Error", f"Update failed:\n{e}", parent=self.root)
+
 
     def show_about_dialog(self):
         """عرض نافذة حول"""
@@ -459,11 +498,11 @@ Developer: Bibo Marcos
         """Toggle between dark and light mode."""
         self.dark_mode = not self.dark_mode
         self.configure_styles()
-        
+
         if self.dark_mode:
-            self.dark_mode_button.config(text="☀ Light")
+            self.dark_mode_button.config(text="☀  Light")
         else:
-            self.dark_mode_button.config(text="🌙 Dark")
+            self.dark_mode_button.config(text="🌙  Dark")
 
     def configure_styles(self):
         """تكوين أنماط الواجهة"""
@@ -485,17 +524,18 @@ Developer: Bibo Marcos
         # Root background
         self.root.configure(bg=self.bg_color)
 
-        # ── Apply all shared styles (frames, entries, treeview, notebook…) ──
+        # ── Apply all shared ttk styles ──────────────────────────────────
         apply_global_styles(self.style, palette, self.dark_mode)
-
-        # ── Apply all named button styles ──────────────────────────────────
         configure_all_button_styles(self.style, palette)
 
-        # Re-apply row tags on the main treeview after theme switch
+        # ── Re-apply tags on main treeview ───────────────────────────────
         if hasattr(self, 'colors_table'):
             setup_tree_tags(self.colors_table, self.dark_mode)
 
-        # Status bar
+        # ── Recursively repaint all plain tk.Widget (Canvas, Label, etc.) ─
+        self._repaint_tk_widgets(self.root, palette)
+
+        # ── Status bar ───────────────────────────────────────────────────
         if hasattr(self, "status_bar"):
             try:
                 self.status_bar.configure(
@@ -504,6 +544,30 @@ Developer: Bibo Marcos
                 )
             except Exception:
                 pass
+
+    def _repaint_tk_widgets(self, widget, palette):
+        """Recursively update bg/fg on plain tk.Widgets (not ttk) after theme toggle."""
+        import tkinter as _tk
+        bg = palette["bg"]
+        fg = palette["fg"]
+        card = palette["card_bg"]
+        try:
+            cls = widget.__class__.__name__
+            if cls in ("Label", "Canvas"):
+                widget.configure(bg=bg, fg=fg)
+            elif cls == "Frame":
+                widget.configure(bg=bg)
+            elif cls in ("Text", "Entry"):
+                widget.configure(
+                    bg=palette["entry_bg"], fg=fg,
+                    insertbackground=fg,
+                    selectbackground=palette["tree_selected_bg"],
+                    selectforeground="#FFFFFF"
+                )
+        except Exception:
+            pass
+        for child in widget.winfo_children():
+            self._repaint_tk_widgets(child, palette)
 
     def setup_ui(self):
         """إعداد واجهة المستخدم"""
@@ -543,6 +607,7 @@ Developer: Bibo Marcos
         self.create_recipe_btn = ttk.Button(frame1, text="✚ Create Recipe", command=self.open_recipe_creator, style="App.TButton")
         self.create_recipe_btn.pack(side=tk.LEFT, padx=6, pady=2)
         ttk.Button(frame1, text="📚 Ricette", command=self.open_saved_recipes, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
+        ttk.Button(frame1, text="📈 Programs", command=self.open_programs_page, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
         ttk.Button(frame1, text="🎨 Active Colors", command=self.open_colors_in_use, style="App.TButton").pack(side=tk.LEFT, padx=6, pady=2)
         ttk.Button(frame1, text="📄 Import PDF", command=self.open_pdf_import, style='Import.TButton').pack(side=tk.LEFT, padx=6, pady=2)
 
@@ -561,7 +626,7 @@ Developer: Bibo Marcos
         if not self._has_permission("can_add"):
             self.create_recipe_btn.state(["disabled"])
 
-        self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙 Dark",
+        self.dark_mode_button = ttk.Button(toolbar_frame, text="🌙  Dark",
                                            command=self.toggle_dark_mode,
                                            style="Toggle.TButton", width=10)
         self.dark_mode_button.pack(side=tk.RIGHT, padx=(0, 5))
@@ -775,9 +840,13 @@ Developer: Bibo Marcos
         self.name_entry = ttk.Entry(row1, width=30)
         self.name_entry.grid(row=0, column=3, padx=5, sticky="w")
 
-        ttk.Label(row1, text="Dye Type*:").grid(row=0, column=4, padx=5, sticky="e")
+        ttk.Label(row1, text="Lotto:").grid(row=0, column=4, padx=5, sticky="e")
+        self.lotto_input_entry = ttk.Entry(row1, width=15)
+        self.lotto_input_entry.grid(row=0, column=5, padx=5, sticky="w")
+
+        ttk.Label(row1, text="Dye Type*:").grid(row=0, column=6, padx=5, sticky="e")
         self.type_combo = ttk.Combobox(row1, values=DYE_TYPES, state="readonly", width=20)
-        self.type_combo.grid(row=0, column=5, padx=5, sticky="w")
+        self.type_combo.grid(row=0, column=7, padx=5, sticky="w")
 
         # الصف الثاني
         row2 = ttk.Frame(input_frame)
@@ -826,6 +895,7 @@ Developer: Bibo Marcos
         return any((
             self.code_entry.get().strip(),
             self.name_entry.get().strip(),
+            self.lotto_input_entry.get().strip(),
             self.type_combo.get().strip(),
             self.supplier_entry.get().strip(),
             self.price_entry.get().strip()
@@ -853,6 +923,7 @@ Developer: Bibo Marcos
         columns = [
             ("code", "Color Code", 100),
             ("name", "Color Name", 150),
+            ("lotto", "Lotto", 100),
             ("dye_type", "Type", 100),
             ("supplier", "Supplier", 120),
             ("price_kg", "Price (kg)", 100),
@@ -933,6 +1004,7 @@ Developer: Bibo Marcos
                 zebra_insert(self.colors_table, (
                     color.code,
                     color.name,
+                    getattr(color, 'current_lotto', '') or '',
                     color.dye_type,
                     color.supplier,
                     format_currency(color.price_kg),
@@ -1002,6 +1074,7 @@ Developer: Bibo Marcos
                 zebra_insert(self.colors_table, (
                     color.code,
                     color.name,
+                    color.current_lotto or '',
                     color.dye_type,
                     color.supplier,
                     format_currency(color.price_kg),
@@ -1021,7 +1094,7 @@ Developer: Bibo Marcos
         try:
             items = [(tv.set(k, col), k) for k in tv.get_children('')]
             items.sort(key=lambda t: t[0], reverse=self.sort_ascending)
-        except:
+        except Exception:
             # إذا فشل، ترتيب نصي
             items = [(tv.set(k, col), k) for k in tv.get_children('')]
             items.sort(key=lambda t: t[0], reverse=self.sort_ascending)
@@ -1049,6 +1122,7 @@ Developer: Bibo Marcos
         try:
             code = self.code_entry.get().strip()
             name = self.name_entry.get().strip()
+            lotto = self.lotto_input_entry.get().strip()
             dye_type = normalize_dye_type_label(self.type_combo.get())
             supplier = self.supplier_entry.get().strip()
 
@@ -1086,6 +1160,7 @@ Developer: Bibo Marcos
                     id=0,
                     code=cleaned_code,
                     name=name,
+                    current_lotto=lotto,
                     dye_type=dye_type,
                     supplier=supplier,
                     price_kg=price_kg,
@@ -1239,6 +1314,7 @@ Developer: Bibo Marcos
         try:
             new_code = self.code_entry.get().strip()
             name = self.name_entry.get().strip()
+            lotto = self.lotto_input_entry.get().strip()
             dye_type = normalize_dye_type_label(self.type_combo.get())
             supplier = self.supplier_entry.get().strip()
 
@@ -1280,6 +1356,7 @@ Developer: Bibo Marcos
                 id=old_color.id,
                 code=cleaned_new_code,
                 name=name,
+                current_lotto=lotto,
                 dye_type=dye_type,
                 supplier=supplier,
                 price_kg=price_kg,
@@ -1318,6 +1395,7 @@ Developer: Bibo Marcos
         """مسح الحقول"""
         self.code_entry.delete(0, tk.END)
         self.name_entry.delete(0, tk.END)
+        self.lotto_input_entry.delete(0, tk.END)
         self.type_combo.set('')
         self.supplier_entry.delete(0, tk.END)
         self.price_entry.delete(0, tk.END)
@@ -1341,18 +1419,21 @@ Developer: Bibo Marcos
             self.name_entry.delete(0, tk.END)
             self.name_entry.insert(0, values[1])
 
-            self.type_combo.set(values[2])
+            self.lotto_input_entry.delete(0, tk.END)
+            self.lotto_input_entry.insert(0, values[2])
+
+            self.type_combo.set(values[3])
 
             self.supplier_entry.delete(0, tk.END)
-            self.supplier_entry.insert(0, values[3])
+            self.supplier_entry.insert(0, values[4])
 
             # إزالة € من السعر
-            price_str = values[4].replace('€', '').strip()
+            price_str = values[5].replace('€', '').strip()
             self.price_entry.delete(0, tk.END)
             self.price_entry.insert(0, price_str)
 
             # إزالة % من النسبة
-            resa_str = values[5].replace('%', '').strip()
+            resa_str = values[6].replace('%', '').strip()
             self.resa_entry.delete(0, tk.END)
             self.resa_entry.insert(0, resa_str)
 
@@ -1385,6 +1466,17 @@ Developer: Bibo Marcos
             )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Saved Recipes window: {str(e)}")
+
+    def open_programs_page(self):
+        """فتح نافذة Programs."""
+        try:
+            from ui.programs_window import ProgramsWindow
+            self._open_single_child_window(
+                "programs",
+                lambda: ProgramsWindow(self.root, self.db, dark_mode=self.dark_mode)
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Programs window: {str(e)}")
 
     def open_colors_in_use(self, initial_search_code: str = None):
         """فتح نافذة الألوان المستخدمة"""

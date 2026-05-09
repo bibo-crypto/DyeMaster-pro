@@ -1,4 +1,4 @@
-﻿"""
+"""
 In-app updater for PyInstaller --onedir builds.
 
 GitHub Release format expected:
@@ -389,7 +389,7 @@ class AppUpdater:
                 ')',
                 "",
                 ":: ── Launch new version ─────────────────────────────────────",
-                f'start "" /D "{install_dir}" "{current_exe}"',
+                f'start "" /D "{install_dir}" "{exe_name}"',
                 "",
                 ":CLEANUP",
                 "ping 127.0.0.1 -n 4 -w 1000 >nul",

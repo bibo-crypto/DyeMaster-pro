@@ -86,6 +86,7 @@ def _configure_tk_env():
     if appdata:
         candidates.append(os.path.join(appdata, "uv", "python", "cpython-3.14.3-windows-x86_64-none", "tcl"))
 
+
     for base in candidates:
         tcl_dir = os.path.join(base, "tcl8.6")
         tk_dir = os.path.join(base, "tk8.6")
@@ -161,24 +162,43 @@ def acquire_single_instance():
 
 
 def _restore_pending_database():
-    """If an update has marked a DB backup, restore it now (after new version start)."""
+    """
+    After a successful update, restore the pre-update database backup.
+    The marker file is always removed, even if restore fails,
+    so we never attempt a stale restore on subsequent launches.
+    """
     try:
         from app.config import BACKUP_DIR
         marker = os.path.join(BACKUP_DIR, "pending_update_restore.txt")
-        if os.path.isfile(marker):
+        if not os.path.isfile(marker):
+            return  # nothing to do
+
+        backup_path = ""
+        try:
             with open(marker, "r", encoding="utf-8") as mf:
                 backup_path = mf.read().strip()
-            if backup_path and os.path.isfile(backup_path):
-                from app.database import DatabaseManager
-                db = DatabaseManager()
-                db.restore_database(backup_path)
-                print(f"[Updater] Restored database from backup: {backup_path}")
-            else:
-                print(f"[Updater] Pending backup path missing: {backup_path}")
+        except Exception as read_err:
+            print(f"[Updater] Could not read restore marker: {read_err}")
+        finally:
+            # Always remove marker — prevents repeated restore attempts
             try:
                 os.remove(marker)
             except Exception:
                 pass
+
+        if not backup_path:
+            print("[Updater] Restore marker was empty — skipping.")
+            return
+
+        if not os.path.isfile(backup_path):
+            print(f"[Updater] Backup file not found, skipping restore: {backup_path}")
+            return
+
+        from app.database import DatabaseManager
+        db = DatabaseManager()
+        db.restore_database(backup_path)
+        print(f"[Updater] Database restored from: {backup_path}")
+
     except Exception as e:
         print(f"[Updater] Failed pending DB restore: {e}")
 
@@ -197,7 +217,7 @@ def main():
         root = tk.Tk()
         _trace_startup("tk root created")
         
-        # نظام Login الجديد ✅
+        # نظام Login الجديد
         from ui.login_window import LoginWindow
 
         login_success = [False]
@@ -217,7 +237,7 @@ def main():
         _trace_startup(f"fatal exception: {e}")
         try:
             messagebox.showerror("Fatal Error", f"Application error: {str(e)}")
-        except:
+        except Exception:
             print(f"Fatal Error: {e}")
         sys.exit(1)
     finally:
@@ -227,7 +247,7 @@ def main():
                 ctypes.windll.kernel32.CloseHandle(lock_socket)
             elif lock_socket:
                 lock_socket.close()
-        except:
+        except Exception:
             pass
 
 def show_main_gui():
@@ -241,7 +261,7 @@ def show_main_gui():
     try:
         from app.gui import DyeMasterProGUI
         app = DyeMasterProGUI(root)
-        print("✅ Login → GUI loaded successfully")
+        print("Login -> GUI loaded successfully")
         app.run()
     except Exception as e:
         import traceback
