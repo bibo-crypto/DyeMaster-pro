@@ -4,9 +4,11 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+import sys
 from datetime import datetime
 import shutil
 import sqlite3
+import threading
 
 from app.config import DYE_TYPES
 from app.database import DatabaseManager
@@ -85,11 +87,21 @@ class DyeMasterProGUI:
         # إنشاء الواجهة
         self.setup_ui()
 
-        # تحميل البيانات
-        self.load_data()
-        self.root.bind("<FocusIn>", self._on_root_focus_in, add="+")
+        # تحميل البيانات (مؤجل) لتجنب تأخير/تجميد فتح الواجهة بعد تسجيل الدخول
+        self._load_generation = 0
+        self.root.after(0, self.load_data_async)
 
         # نسخ احتياطي يومي عند التشغيل (مرة واحدة فقط يومياً)
+        self.root.after(3000, self._perform_startup_backup)
+
+        # ربط حدث إغلاق البرنامج بدالة النسخ الاحتياطي التلقائي
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def _has_permission(self, permission: str) -> bool:
+        return self.session.has_permission(permission)
+
+    def _perform_startup_backup(self):
+        """إجراء النسخ الاحتياطي بعد استقرار الواجهة لتجنب تعليق الماوس"""
         if self._has_permission("can_backup"):
             try:
                 daily_path = self.db.backup_database(once_per_day=True)
@@ -100,43 +112,8 @@ class DyeMasterProGUI:
             except Exception as e:
                 print(f"[-] Daily startup backup failed: {str(e)}")
 
-        # ربط حدث إغلاق البرنامج بدالة النسخ الاحتياطي التلقائي
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-    def _has_permission(self, permission: str) -> bool:
-        return self.session.has_permission(permission)
-
     def _deny_permission(self, action_text: str):
         messagebox.showwarning("Permission Denied", f"You do not have permission to {action_text}.")
-
-    def _on_root_focus_in(self, _event=None):
-        """Refresh when focus returns to main window (throttled)."""
-        if _event is not None and getattr(_event, "widget", None) is not self.root:
-            return
-        if self._get_active_child_window() is not None:
-            return
-        try:
-            if self._focus_refresh_job is not None:
-                self.root.after_cancel(self._focus_refresh_job)
-        except Exception:
-            pass
-        self._focus_refresh_job = self.root.after(120, self._refresh_data_on_focus)
-
-    def _refresh_data_on_focus(self):
-        try:
-            has_filters = any((
-                self.search_entry.get().strip(),
-                self.search_type_combo.get().strip(),
-                self.search_supplier_entry.get().strip(),
-            ))
-            if has_filters:
-                self.search_colors()
-            else:
-                self.load_data()
-        except Exception:
-            pass
-        finally:
-            self._focus_refresh_job = None
 
     def _sync_permissions_ui(self):
         """Apply current role permissions to toolbar/menu widgets."""
@@ -231,36 +208,61 @@ class DyeMasterProGUI:
                 except Exception:
                     pass
         self._child_windows.clear()
+        self.root.update_idletasks()
 
     def switch_user(self):
         """Switch to another user without restarting the whole app."""
         self._close_all_child_windows()
-        try:
-            if self.root.grab_current() is not None:
-                self.root.grab_release()
-        except Exception:
-            pass
+        self._release_stale_grab()
+        self.root.update_idletasks()
 
         switched = {"ok": False}
         try:
             from ui.login_window import LoginWindow
+            from ui.theme_tokens import show_on_top
 
             login_dialog = tk.Toplevel(self.root)
+            login_dialog.title("Switch User")
             login_dialog.transient(self.root)
-            login_dialog.grab_set()
+            
+            # دالة إغلاق آمنة لضمان تحرير الـ Grab
+            def _on_close_dialog():
+                try:
+                    if self.root.grab_current() is login_dialog:
+                        login_dialog.grab_release()
+                    login_dialog.destroy()
+                except Exception:
+                    pass
+
+            login_dialog.protocol("WM_DELETE_WINDOW", _on_close_dialog)
 
             def _on_success():
                 switched["ok"] = True
+                _on_close_dialog()
 
             LoginWindow(login_dialog, on_success_callback=_on_success)
+
+            # توسيط النافذة يدوياً لضمان الدقة قبل الـ Grab
+            login_dialog.update_idletasks()
+            w, h = 600, 500
+            sw, sh = login_dialog.winfo_screenwidth(), login_dialog.winfo_screenheight()
+            x = (sw // 2) - (w // 2)
+            y = (sh // 2) - (h // 2)
+            login_dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+            # تطبيق الخصائص النسقية
+            show_on_top(login_dialog, self.root)
+            
+            # الانتظار حتى تنتهي العملية
             self.root.wait_window(login_dialog)
         except Exception as e:
+            self._release_stale_grab()
             messagebox.showerror("Switch User", f"Failed to open login window: {e}")
             return
 
         if switched["ok"]:
             self.clear_fields()
-            self.load_data()
+            self.load_data_async()
             self._sync_permissions_ui()
             current = self.session.current_user.username if self.session.current_user else "Unknown"
             messagebox.showinfo("Switch User", f"Logged in as: {current}")
@@ -324,12 +326,14 @@ class DyeMasterProGUI:
         # قائمة File
         file_menu = tk.Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Switch User", command=self.switch_user)
+        file_menu.add_command(label="Switch User", command=self.switch_user, accelerator="Ctrl+S")
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_closing, accelerator="Ctrl+Q")
 
         # ربط الاختصارات
         self.root.bind('<Control-q>', lambda e: self.on_closing())
+        self.root.bind_all('<Control-s>', lambda e: self.switch_user())
+        self.root.bind_all('<Control-a>', lambda e: self.open_permissions_manager())
 
         # قائمة Edit
         edit_menu = tk.Menu(menu_bar, tearoff=0)
@@ -372,7 +376,8 @@ class DyeMasterProGUI:
         tools_menu.add_command(
             label="Users & Permissions",
             command=self.open_permissions_manager,
-            state=tk.NORMAL if self._has_permission("can_manage_users") else tk.DISABLED
+            state=tk.NORMAL if self._has_permission("can_manage_users") else tk.DISABLED,
+            accelerator="Ctrl+A"
         )
         # قائمة Help
         help_menu = tk.Menu(menu_bar, tearoff=0)
@@ -424,7 +429,7 @@ class DyeMasterProGUI:
     def show_colors_page(self):
         """عرض صفحة الألوان - تحميل الألوان كلها"""
         self.clear_fields()
-        self.load_data()
+        self.load_data_async()
 
     def show_recipes_page(self):
         """عرض صفحة الريتشتات - فتح نافذة الريتشتات المحفوظة"""
@@ -474,7 +479,9 @@ class DyeMasterProGUI:
                 db_backup_path=backup_path,
             )
             if success:
-                self.root.after(200, self.root.destroy)
+                # root.destroy closes the window; sys.exit kills the
+                # Python process so the updater bat PID-wait exits.
+                self.root.after(200, lambda: (self.root.destroy(), sys.exit(0)))
         except Exception as e:
             messagebox.showerror("Update Error", f"Update failed:\n{e}", parent=self.root)
 
@@ -707,6 +714,9 @@ Developer: Bibo Marcos
     def _open_single_child_window(self, key: str, factory):
         """Open one modal child window per key and reuse existing instance."""
         self._release_stale_grab()
+        
+        # [تحديث تلقائي] عند فتح أي نافذة جديدة
+        self.load_data()
 
         existing = self._child_windows.get(key)
         if existing is not None:
@@ -733,6 +743,19 @@ Developer: Bibo Marcos
         child_window = getattr(instance, "window", None)
         if not child_window:
             return instance
+
+        # توسيط النافذة في منتصف الشاشة
+        child_window.update_idletasks()
+        width = child_window.winfo_width()
+        height = child_window.winfo_height()
+        if width <= 1: width = child_window.winfo_reqwidth()
+        if height <= 1: height = child_window.winfo_reqheight()
+        
+        screen_width = child_window.winfo_screenwidth()
+        screen_height = child_window.winfo_screenheight()
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+        child_window.geometry(f"+{x}+{y}")
 
         self._child_windows[key] = instance
 
@@ -984,6 +1007,125 @@ Developer: Bibo Marcos
         """Normalize dye-type labels for robust filtering."""
         return " ".join(normalize_dye_type_label(dye_type).strip().lower().split())
 
+    def load_data_async(self, chunk_size: int = 250):
+        """
+        تحميل البيانات بدون تجميد واجهة Tkinter.
+
+        - قراءة البيانات من قاعدة البيانات تتم في Thread خلفي.
+        - إدراج الصفوف في Treeview يتم على دفعات صغيرة عبر `after()`.
+        """
+        try:
+            selected_code = None
+            selected_rows = self.colors_table.selection()
+            if selected_rows:
+                selected_code = str(self.colors_table.item(selected_rows[0], "values")[0]).strip()
+        except Exception:
+            selected_code = None
+
+        self._load_generation = getattr(self, "_load_generation", 0) + 1
+        generation = self._load_generation
+
+        try:
+            self.status_bar.config(text="Loading colors...")
+        except Exception:
+            pass
+
+        try:
+            for row in self.colors_table.get_children():
+                self.colors_table.delete(row)
+        except Exception:
+            pass
+
+        results = {"colors": None, "active_codes": None, "error": None}
+
+        def _fetch_db():
+            try:
+                results["colors"] = self.db.get_all_colors()
+                results["active_codes"] = set(self.db.get_all_active_color_codes() or [])
+            except Exception as e:
+                results["error"] = e
+            finally:
+                self.root.after(0, _start_insert)
+
+        def _start_insert():
+            if generation != getattr(self, "_load_generation", 0):
+                return
+            if results["error"] is not None:
+                messagebox.showerror("Error", f"Failed to load data: {results['error']}")
+                return
+            colors = results["colors"] or []
+            active_codes = results["active_codes"] or set()
+            self._insert_colors_in_chunks(colors, active_codes, selected_code, generation, chunk_size)
+
+        threading.Thread(target=_fetch_db, daemon=True, name="LoadColors").start()
+
+    def _insert_colors_in_chunks(
+        self,
+        colors,
+        active_codes: set,
+        selected_code: str | None,
+        generation: int,
+        chunk_size: int,
+    ):
+        total = len(colors)
+        index = {"i": 0}
+        chunk = max(1, int(chunk_size or 1))
+
+        def _step():
+            if generation != getattr(self, "_load_generation", 0):
+                return
+
+            i = index["i"]
+            end = min(i + chunk, total)
+            for color in colors[i:end]:
+                status = "Active" if color.code in active_codes else ""
+                zebra_insert(
+                    self.colors_table,
+                    (
+                        color.code,
+                        color.name,
+                        getattr(color, "current_lotto", "") or "",
+                        color.dye_type,
+                        color.supplier,
+                        format_currency(color.price_kg),
+                        format_percentage(color.resa_percent),
+                        color.created_at.split()[0] if color.created_at else "",
+                        color.updated_at.split()[0] if color.updated_at else "",
+                        status,
+                    ),
+                )
+
+            index["i"] = end
+            try:
+                self.status_bar.config(text=f"Loading colors... {end}/{total}")
+            except Exception:
+                pass
+
+            if end < total:
+                self.root.after(1, _step)
+                return
+
+            try:
+                self.status_bar.config(text=f"Loaded {total} colors")
+            except Exception:
+                pass
+
+            if selected_code:
+                try:
+                    for row in self.colors_table.get_children():
+                        values = self.colors_table.item(row, "values")
+                        if values and str(values[0]).strip() == selected_code:
+                            self._suppress_table_select = True
+                            self.colors_table.selection_set(row)
+                            self.colors_table.focus(row)
+                            self.colors_table.see(row)
+                            self.root.after(0, lambda: setattr(self, "_suppress_table_select", False))
+                            break
+                except Exception:
+                    pass
+
+        self.root.after(0, _step)
+
     def load_data(self):
         """تحميل البيانات"""
         try:
@@ -996,11 +1138,12 @@ Developer: Bibo Marcos
 
             # تحميل الألوان
             colors = self.db.get_all_colors()
+            # جلب كل الألوان النشطة مرة واحدة لتجنب فتح اتصالات متكررة داخل الحلقة
+            active_codes = self.db.get_all_active_color_codes()
 
             # إضافة البيانات للجدول
             for color in colors:
-                recipes_using = self.db.get_recipes_using_color(color.code)
-                status = "Active" if recipes_using else ""
+                status = "Active" if color.code in active_codes else ""
                 zebra_insert(self.colors_table, (
                     color.code,
                     color.name,
@@ -1037,6 +1180,7 @@ Developer: Bibo Marcos
             supplier = self.search_supplier_entry.get().strip()
 
             colors = self.db.get_all_colors()
+            active_codes = self.db.get_all_active_color_codes()
 
             # تطبيق الفلاتر
             filtered_colors = []
@@ -1069,8 +1213,7 @@ Developer: Bibo Marcos
 
             # إضافة النتائج
             for color in filtered_colors:
-                recipes_using = self.db.get_recipes_using_color(color.code)
-                status = "Active" if recipes_using else ""
+                status = "Active" if color.code in active_codes else ""
                 zebra_insert(self.colors_table, (
                     color.code,
                     color.name,

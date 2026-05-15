@@ -324,19 +324,27 @@ class ColorManager:
 class DatabaseManager:
     """مدير قاعدة البيانات"""
     
+    _schema_verified = False  # علم للتحقق من الجداول مرة واحدة فقط
+
     def __init__(self, db_file=None):
         """تهيئة مدير قاعدة البيانات"""
         # Logger removed - original state
         self.db_file = db_file or DATABASE_FILE
         self._using_workspace_fallback = False
-        self.ensure_database_exists()
+        # تأمين صلاحيات الملف مرة واحدة فقط عند التشغيل
+        self._ensure_db_writable()
+        
+        if not DatabaseManager._schema_verified:
+            self.ensure_database_exists()
+            DatabaseManager._schema_verified = True
+            
         self.color_manager = ColorManager(self)
 
     def _switch_to_workspace_db(self):
         """Fallback DB location when configured data path is read-only/unavailable."""
         if self._using_workspace_fallback:
             return
-        # Check if USER_DATA_DIR exists and is writable
+        # التحقق من إمكانية الكتابة في المجلد
         fallback_dir = os.path.join(USER_DATA_DIR, "fallback_data")
         if not os.path.exists(USER_DATA_DIR) or not os.access(USER_DATA_DIR, os.W_OK):
             fallback_dir = os.path.join(tempfile.gettempdir(), "DyeMasterPro", "data")
@@ -537,6 +545,27 @@ class DatabaseManager:
             except Exception:
                 pass
             print(f"Set active error: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def delete_user(self, user_id: int) -> bool:
+        """Delete a user from the system (permissions cascade via FK)."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            print(f"Delete user error: {e}")
             return False
         finally:
             if conn:
@@ -784,18 +813,37 @@ class DatabaseManager:
             cursor.execute("UPDATE users SET role = 'tech', active = 1 WHERE username = 'tech'")
             cursor.execute("UPDATE users SET role = 'viewer', active = 1 WHERE username = 'viewer'")
 
-            cursor.execute(
-                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
-                ("admin", admin_hash),
-            )
-            cursor.execute(
-                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'tech')",
-                ("tech", tech_hash),
-            )
-            cursor.execute(
-                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'viewer')",
-                ("viewer", viewer_hash),
-            )
+            # If the system accounts were renamed by the admin UI, avoid recreating duplicates.
+            # Create defaults only when the username is missing *and* there is no user with that role.
+            def _username_exists(username: str) -> bool:
+                try:
+                    cursor.execute("SELECT 1 FROM users WHERE username = ? LIMIT 1", (username,))
+                    return cursor.fetchone() is not None
+                except Exception:
+                    return False
+
+            def _role_exists(role: str) -> bool:
+                try:
+                    cursor.execute("SELECT 1 FROM users WHERE role = ? LIMIT 1", (role,))
+                    return cursor.fetchone() is not None
+                except Exception:
+                    return False
+
+            if (not _username_exists("admin")) and (not _role_exists("admin")):
+                cursor.execute(
+                    "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+                    ("admin", admin_hash),
+                )
+            if (not _username_exists("tech")) and (not _role_exists("tech")):
+                cursor.execute(
+                    "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'tech')",
+                    ("tech", tech_hash),
+                )
+            if (not _username_exists("viewer")) and (not _role_exists("viewer")):
+                cursor.execute(
+                    "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'viewer')",
+                    ("viewer", viewer_hash),
+                )
 
             conn.commit()
             print("Created/Verified default users: admin, tech, viewer")
@@ -831,7 +879,6 @@ class DatabaseManager:
 
     def get_connection(self):
         """الحصول على اتصال بقاعدة البيانات"""
-        self._ensure_db_writable()
         if not self._is_db_path_writable():
             self._switch_to_workspace_db()
         try:
@@ -1179,6 +1226,16 @@ class DatabaseManager:
             # First, delete references in recipe_colors to avoid orphan records
             cursor.execute('DELETE FROM recipe_colors WHERE color_id = ?', (color_id,))
 
+            # Delete lotto history + lottos tied to this color (FK chain: lotto_history -> color_lottos -> colors)
+            cursor.execute("SELECT id FROM color_lottos WHERE color_id = ?", (color_id,))
+            lotto_ids = [r[0] for r in (cursor.fetchall() or [])]
+            for lotto_id in lotto_ids:
+                cursor.execute("DELETE FROM lotto_history WHERE lotto_id = ?", (lotto_id,))
+            cursor.execute("DELETE FROM color_lottos WHERE color_id = ?", (color_id,))
+
+            # Delete color change history (FK: color_history -> colors)
+            cursor.execute("DELETE FROM color_history WHERE color_id = ?", (color_id,))
+
             # Then, delete the color itself
             cursor.execute('DELETE FROM colors WHERE id = ?', (color_id,))
             affected = cursor.rowcount
@@ -1213,7 +1270,15 @@ class DatabaseManager:
             cursor.execute('SELECT id FROM colors WHERE code = ?', (normalized,))
             row = cursor.fetchone()
             if row:
-                cursor.execute('DELETE FROM recipe_colors WHERE color_id = ?', (row[0],))
+                color_id = row[0]
+                cursor.execute('DELETE FROM recipe_colors WHERE color_id = ?', (color_id,))
+
+                cursor.execute("SELECT id FROM color_lottos WHERE color_id = ?", (color_id,))
+                lotto_ids = [r[0] for r in (cursor.fetchall() or [])]
+                for lotto_id in lotto_ids:
+                    cursor.execute("DELETE FROM lotto_history WHERE lotto_id = ?", (lotto_id,))
+                cursor.execute("DELETE FROM color_lottos WHERE color_id = ?", (color_id,))
+                cursor.execute("DELETE FROM color_history WHERE color_id = ?", (color_id,))
             cursor.execute('DELETE FROM colors WHERE code = ?', (normalized,))
             affected = cursor.rowcount
             conn.commit()
@@ -1862,17 +1927,16 @@ class DatabaseManager:
             new_code = new_code.strip()
             new_name = new_name.strip()
 
-            if not new_code:
-                return False, "Recipe code cannot be empty."
-            if not new_name:
-                return False, "Recipe name cannot be empty."
-            if not new_code.isdigit():
-                return False, "Recipe code must contain digits only (0-9)."
-            if len(new_code) > 6:
-                return False, "Recipe code cannot exceed 6 digits."
+            from app.validators import Validators
+            is_valid_code, msg_code = Validators.validate_recipe_code(new_code)
+            if not is_valid_code:
+                return False, msg_code
+                
+            is_valid_name, msg_name = Validators.validate_name(new_name, "Recipe name")
+            if not is_valid_name:
+                return False, msg_name
 
-            # Zero-pad from the left to 6 digits
-            new_code = new_code.zfill(6)
+            new_code = clean_recipe_code(new_code)
 
             conn = self.get_connection()
             cursor = conn.cursor()
@@ -2433,6 +2497,20 @@ class DatabaseManager:
             return result
         except Exception:
             return 0.0
+        finally:
+            if conn:
+                conn.close()
+
+    def get_all_active_color_codes(self) -> set:
+        """جلب جميع أكواد الألوان المستخدمة في ريتشتات بطلب واحد (لتحسين الأداء)"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT c.code FROM colors c JOIN recipe_colors rc ON c.id = rc.color_id")
+            return {row[0] for row in cursor.fetchall()}
+        except Exception:
+            return set()
         finally:
             if conn:
                 conn.close()

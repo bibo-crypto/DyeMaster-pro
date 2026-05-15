@@ -321,10 +321,37 @@ def add_treeview_grid_lines(tree: ttk.Treeview, dark_mode: bool) -> None:
 def show_on_top(window, parent=None):
     """Make a Toplevel window appear on top and grab focus. Used by all windows."""
     try:
+        # Center child windows on screen as soon as geometry is settled.
+        window.after_idle(lambda: center_window(window))
         window.lift()
         window.focus_force()
         window.grab_set()  # منع التعامل مع أي نافذة أخرى (Modal Logic)
         window.attributes("-topmost", True)
         window.after(250, lambda: window.attributes("-topmost", False))
+    except Exception:
+        pass
+
+
+def center_window(window, width: int | None = None, height: int | None = None) -> None:
+    """
+    Center a Tk/Toplevel window on the screen.
+
+    If width/height are not provided, uses the window's current size (after
+    update_idletasks) so this works with both fixed geometry and layout-driven
+    sizes.
+    """
+    try:
+        window.update_idletasks()
+
+        w = int(width) if width else int(window.winfo_width() or window.winfo_reqwidth())
+        h = int(height) if height else int(window.winfo_height() or window.winfo_reqheight())
+
+        sw = int(window.winfo_screenwidth())
+        sh = int(window.winfo_screenheight())
+
+        x = max((sw - w) // 2, 0)
+        y = max((sh - h) // 2, 0)
+
+        window.geometry(f"{w}x{h}+{x}+{y}")
     except Exception:
         pass

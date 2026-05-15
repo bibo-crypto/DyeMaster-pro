@@ -3,6 +3,7 @@
 """
 import tkinter as tk
 import sqlite3
+import os
 from tkinter import ttk, messagebox
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -45,8 +46,14 @@ class SimpleColorsWindow:
         show_on_top(self.window, parent)
         self.window.title(f"Modify Color: {color_code}")
 
-        # [OK] حجم أصغر وأكثر كفاءة
-        self.window.geometry("500x550")
+        # توسيط النافذة في منتصف الشاشة
+        width, height = 500, 550
+        screen_width = self.window.winfo_screenwidth()
+        screen_height = self.window.winfo_screenheight()
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+
         self.window.minsize(480, 500)
 
         # مركز النافذة
@@ -1501,6 +1508,7 @@ class ActiveColorsWindow:
                     ["Created at",  lotto["created_at"] or "—"],
                     ["Created by",  lotto["created_by"] or "—"],
                 ]
+                t = Table(info_data, colWidths=[5*cm, 12*cm])
                 t.setStyle(TableStyle([
                     ("BACKGROUND", (0,0), (-1,0), rl_colors.HexColor("#1565C0")),
                     ("TEXTCOLOR",  (0,0), (-1,0), rl_colors.white),
@@ -1578,8 +1586,6 @@ class LottoManagerDialog:
         self.win.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
         self.win.resizable(True, True)
         self.win.minsize(1100, 550)
-        self.refresh_interval_ms = 2000
-        self._auto_refresh_job = None
         self._left_rows = []
         self._left_sort_column = "code"
         self._left_sort_reverse = False
@@ -1591,7 +1597,6 @@ class LottoManagerDialog:
         
         self._build()
         self._load_colors()
-        self._schedule_auto_refresh()
         self.win.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build(self):
@@ -2146,25 +2151,9 @@ class LottoManagerDialog:
             return
         for item in self.history_tree.get_children():
             self.history_tree.delete(item)
-        self.status_lbl.config(text="Auto-refreshed")
-
-    def _schedule_auto_refresh(self):
-        self._auto_refresh_job = self.win.after(self.refresh_interval_ms, self._auto_refresh_tick)
-
-    def _auto_refresh_tick(self):
-        try:
-            self._refresh(keep_selection=True)
-        finally:
-            if self.win.winfo_exists():
-                self._schedule_auto_refresh()
+        self.status_lbl.config(text="Data refreshed")
 
     def _on_close(self):
-        if self._auto_refresh_job:
-            try:
-                self.win.after_cancel(self._auto_refresh_job)
-            except Exception:
-                pass
-            self._auto_refresh_job = None
         self.win.destroy()
 
     def _clear_left_search(self):

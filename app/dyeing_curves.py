@@ -74,7 +74,12 @@ def determine_process(selected_colors: List[Dict]) -> Tuple[str, str, str]:
         return ("ISODOS", "ISODOS® Process (IW)",
                 "Bath exhaustion 45°C — medium alkalinity — Glauber's salt required")
     if any(k in dominant for k in ["CALDI", "FREDDI", "OLTRI", "REATTIVI"]):
-        return ("REATTIVI", "Reactive Exhaust Dyeing",
+        pname = "Reactive Exhaust Dyeing"
+        if "CALDI" in dominant:
+            pname = "Reactive Caldi Process"
+        elif "FREDDI" in dominant:
+            pname = "Reactive Freddi Process"
+        return ("REATTIVI", pname,
                 "Salt + soda ash fixation — exhaust at 60°C")
     return ("ISODOS", "ISODOS® Process (IW)", "Standard Winch/Jet dyeing")
 
@@ -441,9 +446,9 @@ def _curve_pre_pigment(pct: float) -> Dict:
              "start_temp": 80,          "end_temp": 90,          "color": "#2196F3", "phase": "dyeing"},
             {"label": "Vatting\n80°C",           "start_time": 30,  "end_time": 55,
              "start_temp": 90,          "end_temp": 80,          "color": "#1565C0", "phase": "dyeing"},
-            {"label": "Reduction\n→ exhaust",    "start_time": 55,  "end_time": 90,
+            {"label": "Reduction\n→ exhaustion",    "start_time": 55,  "end_time": 90,
              "start_temp": 80,          "end_temp": end_exhaust, "color": "#9C27B0", "phase": "reduction"},
-            {"label": "Red. Rinse\n>1%",         "start_time": 90,  "end_time": 105,
+            {"label": "Red. Rinse\n> 1%",         "start_time": 90,  "end_time": 105,
              "start_temp": end_exhaust, "end_temp": end_exhaust, "color": "#7B1FA2", "phase": "reduction"},
             {"label": "Oxidation",               "start_time": 105, "end_time": 125,
              "start_temp": 20,          "end_temp": 50,          "color": "#FF9800", "phase": "oxidation"},
@@ -457,9 +462,11 @@ def _curve_pre_pigment(pct: float) -> Dict:
              "start_temp": 60,          "end_temp": 40,          "color": "#4CAF50", "phase": "neutralize"},
         ],
         "annotations": [
-            {"number": 1, "time": 15, "temp": 92, "chemicals": [
+            {"number": 1, "time": 15, "temp": 86, "chemicals": [
                 "2 g/l   Sera Sperse C-SN", "1 g/l   Sera Quest C-PX",
-                "1 g/l   Sera Sperse M-IS", "...%    Indanthren dyes (pigment form)",
+                "1 g/l   Sera Sperse M-IS", "3 g/l   Sera Lube M-CF",
+                "1 g/l   Sera Gal C-VP", "... g/l Hydrosulfite (Optidye CI)",
+                "Caustic soda (Optidye CI) — linear dosing", "3 g/l   Glucose (sensitive dyes only)",
             ]},
             {"number": 2, "time": 42, "temp": 86, "chemicals": [
                 "... ml/l  Caustic soda (Optidye CI)", "1–3 g/l   Sera Gal C-VP",
@@ -476,11 +483,11 @@ def _curve_pre_pigment(pct: float) -> Dict:
             {"number": 6, "time": 172, "temp": 45, "chemicals": ["Neutralise pH 7"]},
         ],
         "notes": [
-            "Pre-pigmentation: dye deposited in pigment form first",
-            "Better uniformity at 80–90°C — improved liquor flow through yarn",
-            "Vatted at 80°C — temperature reduced to 60°C or 50°C at end",
-            f"End exhaustion: {end_exhaust}°C (depth-dependent)",
-            "Red. rinse (step 3) only for dyeings > 1%",
+            "Pre-pigmentation: dyestuff is partly deposited on the fibre in non-substantive pigment form",
+            "More uniform deposition at high temperatures (80–90°C) because of better liquor flow through yarn",
+            "Dye is vatted at 80°C", 
+            "To improve bath exhaustion, reduce the dyeing temperature to 60°C or 50°C near the end",
+            "Indanthren dyes are reduced to soluble leuco form with alkali and hydrosulfite, then oxidized back to insoluble dye",
         ]
     }
 

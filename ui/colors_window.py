@@ -389,7 +389,7 @@ class ColorsWindow:
                                 self.is_new_color = False
                             else:
                                 return
-                except:
+                except Exception:
                     pass
 
             # إنشاء كائن Color

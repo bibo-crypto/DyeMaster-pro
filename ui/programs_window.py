@@ -1,6 +1,7 @@
 """
 Programs window — recipe list + inline dyeing curve + step-by-step program text.
 """
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Dict, Optional
@@ -368,6 +369,9 @@ class ProgramsWindow:
         total_pct = self.current_recipe_data.get("total_percentage", 0.0) or 0.0
         pkey, pname, pdesc = determine_process(colors)
         self.curve = get_curve_data(pkey, total_pct)
+        # تحديث اسم العملية في كائن المنحنى لضمان ظهوره في الـ PDF والرسوم البيانية
+        if self.curve:
+            self.curve["process_name"] = pname
 
         # Header
         self.hdr_code.config(text=self.current_recipe_data.get("recipe_code", "—"))
@@ -398,8 +402,23 @@ class ProgramsWindow:
         self.ann_text.tag_configure("hr",   foreground="#555")
 
         if self.curve:
+            # قاموس لتحويل أسماء المراحل الداخلية إلى أسماء عرض
+            display_map = {
+                "dyeing":     "Dyeing",
+                "reduction":  "Reduction / Vatting",
+                "oxidation":  "Oxidation",
+                "soaping":    "Soaping",
+                "rinse":      "Rinse",
+                "neutralize": "Rinse / Neutralise",
+            }
+
             for ann in self.curve.get("annotations", []):
-                self.ann_text.insert(tk.END, f"  Step {ann['number']}  ", "num")
+                # تحديد اسم المرحلة بناءً على توقيت الخطوة
+                t = ann['time']
+                p_key = next((s["phase"] for s in self.curve.get("steps", []) if s["start_time"] <= t <= s["end_time"]), "Step")
+                phase_name = display_map.get(p_key, p_key.title())
+
+                self.ann_text.insert(tk.END, f"  {ann['number']}-{phase_name}  ", "num")
                 self.ann_text.insert(tk.END, f"@ {ann['time']} min\n", "hr")
                 for chem in ann.get("chemicals", []):
                     self.ann_text.insert(tk.END, f"    {chem}\n", "chem")
@@ -509,12 +528,14 @@ class ProgramsWindow:
             c.create_polygon(x1, yb, x1, y1, x2, y2, x2, yb,
                              fill=col, outline="", stipple="gray25")
             c.create_line(x1, y1, x2, y2, fill=col, width=3)
+            # Step label inside the shaded band — placed below midline
+            # so it never overlaps the numbered annotation circles above
             lbl = step.get("label", "")
             if lbl and (x2 - x1) > 35:
-                # Place label inside the shaded band (below mid-line) — never overlaps circles
                 label_y = min((y1 + y2) / 2 + 14, ty(0) - 8)
                 c.create_text((x1 + x2) / 2, label_y,
-                              text=lbl, font=("Arial", 7), fill=col, justify="center")
+                              text=lbl, font=("Arial", 7),
+                              fill=col, justify="center")
 
         for ann in self.curve.get("annotations", []):
             t        = ann["time"]
@@ -668,9 +689,23 @@ class ProgramsWindow:
             # Annotations
             elems.append(Paragraph("<b>Step Chemicals & Annotations</b>", styles["Heading2"]))
             elems.append(Spacer(1, 0.15*cm))
+            
+            # قاموس لتحويل أسماء المراحل الداخلية إلى أسماء عرض (مكرر من _populate_annotations)
+            display_map = {
+                "dyeing":     "Dyeing",
+                "reduction":  "Reduction / Vatting",
+                "oxidation":  "Oxidation",
+                "soaping":    "Soaping",
+                "rinse":      "Rinse",
+                "neutralize": "Rinse / Neutralise",
+            }
+
             for ann in self.curve.get("annotations", []):
+                t = ann['time']
+                p_key = next((s["phase"] for s in self.curve.get("steps", []) if s["start_time"] <= t <= s["end_time"]), "Step")
+                phase_name = display_map.get(p_key, p_key.title())
                 elems.append(Paragraph(
-                    f"<b>Step {ann['number']}  @  {ann['time']} min</b>",
+                    f"<b>{ann['number']}-{phase_name}  @  {ann['time']} min</b>",
                     ParagraphStyle("ah", parent=styles["Normal"],
                                    textColor=rl_colors.HexColor("#E65100"),
                                    fontSize=9, spaceAfter=2)))

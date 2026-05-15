@@ -22,6 +22,7 @@ from app.utils import (
     get_current_timestamp,
     validate_recipe_code_input,
 )
+from ui.theme_tokens import show_on_top
 
 
 def _configure_stdout_for_unicode() -> None:
@@ -753,6 +754,7 @@ class SystemTester:
                 test_window = tk.Toplevel(self.parent)
                 test_window.title("UI Test Window")
                 test_window.geometry("400x300")
+                show_on_top(test_window, self.parent)
 
                 # إنشاء عناصر واجهة المستخدم الأساسية
                 label = ttk.Label(test_window, text="UI Test Label")
@@ -874,15 +876,13 @@ def run_tests_from_gui(parent):
         # إنشاء نافذة الاختبار
         test_window = tk.Toplevel(parent)
         test_window.title("System Test Suite")
+        
+        # حجم النافذة (وسيتم توسيطها عبر show_on_top)
         test_window.geometry("600x500")
 
         # Make window modal
         test_window.transient(parent)
-        test_window.lift()
-        test_window.focus_force()
-        test_window.grab_set()
-        test_window.attributes("-topmost", True)
-        test_window.after(250, lambda: test_window.attributes("-topmost", False))
+        show_on_top(test_window, parent)
 
         # عنوان
         title_label = ttk.Label(test_window, text="🔬 System Test Suite",
@@ -1037,5 +1037,3 @@ def run_automatic_quick_test(parent=None):
         print("[FAIL] QUICK TEST FAILED!")
         print("=" * 60)
         return False
-
-

@@ -52,6 +52,7 @@ def _ensure_venv():
             try:
                 os.execv(preferred_python, [preferred_python] + sys.argv)
             except Exception as e:
+                os.environ["DYEMASTER_VENV_FAILED"] = "1"
                 print(f"Failed to exec preferred venv Python: {e}")
 
     if _is_venv_active():

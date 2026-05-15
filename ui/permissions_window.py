@@ -57,6 +57,7 @@ class PermissionsWindow:
 
         self._selected_user_id = None
         self._permission_vars: dict[str, tk.BooleanVar] = {}
+        self._suppress_select_event = False
 
         self._build()
         self._load_users()
@@ -164,10 +165,14 @@ class PermissionsWindow:
         actions = ttk.Frame(right)
         actions.pack(fill=tk.X, pady=(10, 0))
         ttk.Button(actions, text="Add User", command=self._open_add_user, width=10).pack(side=tk.LEFT)
-        ttk.Button(actions, text="Reload", command=self._load_users, width=10).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(actions, text="Delete User", command=self._delete_user, width=10).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(actions, text="Save Changes", command=self._save_changes, width=14).pack(side=tk.RIGHT)
 
     def _load_users(self):
+        self._suppress_select_event = True
+        current_sel = self.users_tree.selection()
+        selected_iid = current_sel[0] if current_sel else None
+
         for item in self.users_tree.get_children():
             self.users_tree.delete(item)
         users = self.db.get_users_detailed()
@@ -183,8 +188,12 @@ class PermissionsWindow:
                     u["last_login"] or "—",
                 ),
             )
-        self._selected_user_id = None
-        self._clear_editor()
+        
+        if selected_iid and self.users_tree.exists(selected_iid):
+            self.users_tree.selection_set(selected_iid)
+        
+        self._suppress_select_event = False
+        self.window.update_idletasks()
 
     def _clear_editor(self):
         self.username_var.set("")
@@ -197,6 +206,8 @@ class PermissionsWindow:
             v.set(False)
 
     def _on_user_selected(self):
+        if self._suppress_select_event:
+            return
         sel = self.users_tree.selection()
         if not sel:
             self._selected_user_id = None
@@ -247,6 +258,40 @@ class PermissionsWindow:
             self.new_pw2_var.set("")
             messagebox.showinfo("Success", "Password updated.", parent=self.window)
             self._notify_changed()
+            self._load_users()
+
+            # If the admin also edited account fields (username/role/active/permissions),
+            # they must click "Save Changes" to persist those edits. Many users expect
+            # the password action to save everything, so show a clear prompt.
+            try:
+                sel = self.users_tree.selection()
+                if sel:
+                    vals = self.users_tree.item(sel[0], "values")
+                    current_username = str(vals[0]).strip() if vals else ""
+                    current_role = str(vals[1]).strip().lower() if vals else ""
+                    current_active = (str(vals[2]).strip().lower() == "yes") if vals else True
+
+                    edited_username = (self.username_var.get() or "").strip()
+                    edited_role = (self.role_var.get() or "").strip().lower()
+                    edited_active = bool(self.active_var.get())
+
+                    if (
+                        edited_username
+                        and (
+                            edited_username != current_username
+                            or edited_role != current_role
+                            or edited_active != current_active
+                        )
+                    ):
+                        messagebox.showwarning(
+                            "Account Not Saved",
+                            "Password was updated.\n\n"
+                            "You also edited Username/Role/Active.\n"
+                            "Click 'Save Changes' to apply those edits.",
+                            parent=self.window,
+                        )
+            except Exception:
+                pass
         else:
             messagebox.showerror("Error", "Failed to update password.", parent=self.window)
 
@@ -327,6 +372,12 @@ class PermissionsWindow:
             pass
 
     def _on_close(self):
+        # تحديث تلقائي للنافذة الأم عند إغلاق صفحة الصلاحيات لضمان مزامنة البيانات
+        try:
+            self._notify_changed()
+        except Exception:
+            pass
+
         try:
             self.window.grab_release()
         except Exception:
@@ -342,6 +393,63 @@ class PermissionsWindow:
 
     def _open_add_user(self):
         AddUserDialog(self.window, self.db, self.session, dark_mode=self.dark_mode, on_created=self._on_user_created)
+
+    def _delete_user(self):
+        if not self._selected_user_id:
+            messagebox.showwarning("No Selection", "Please select a user first.", parent=self.window)
+            return
+
+        current_uid = getattr(getattr(self.session, "current_user", None), "id", None)
+        if current_uid and self._selected_user_id == current_uid:
+            messagebox.showerror("Blocked", "You cannot delete your own account.", parent=self.window)
+            return
+
+        # Determine selected username/role from the tree.
+        try:
+            sel = self.users_tree.selection()
+            vals = self.users_tree.item(sel[0], "values") if sel else ()
+            username = str(vals[0]).strip() if vals else ""
+            role = str(vals[1]).strip().lower() if vals else ""
+        except Exception:
+            username, role = "", ""
+
+        # Block deleting the 3 primary system accounts.
+        if str(username).strip().lower() in ("admin", "tech", "viewer"):
+            messagebox.showerror(
+                "Blocked",
+                "You cannot delete the primary system accounts (admin/tech/viewer).",
+                parent=self.window,
+            )
+            return
+
+        # Prevent deleting the last admin account.
+        try:
+            users = self.db.get_users_detailed()
+            admin_count = sum(1 for u in (users or []) if str(u.get("role", "")).strip().lower() == "admin")
+            if role == "admin" and admin_count <= 1:
+                messagebox.showerror("Blocked", "You cannot delete the last admin account.", parent=self.window)
+                return
+        except Exception:
+            pass
+
+        label = f"'{username}'" if username else "this user"
+        if messagebox.askyesno(
+            "Confirm Delete",
+            f"Delete {label} permanently?\n\nThis cannot be undone.",
+            parent=self.window,
+        ) is not True:
+            return
+
+        ok = self.db.delete_user(self._selected_user_id)
+        if not ok:
+            messagebox.showerror("Error", "Failed to delete user.", parent=self.window)
+            return
+
+        messagebox.showinfo("Deleted", "User deleted.", parent=self.window)
+        self._selected_user_id = None
+        self._clear_editor()
+        self._load_users()
+        self._notify_changed()
 
     def _on_user_created(self, user_id: int | None):
         if not user_id:

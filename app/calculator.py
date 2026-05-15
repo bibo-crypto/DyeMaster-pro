@@ -32,6 +32,8 @@ class ChemicalCalculator:
         # ترتيب الفحص مهم جداً - نفحص الأنواع الأطول/الأكثر تحديداً أولاً
         if "IN SP" in dye_type:
             return ChemicalCalculator._indanthren_in_sp(total_percentage)
+        elif "BLACK" in dye_type:
+            return ChemicalCalculator._indanthren_iw(total_percentage)
         elif "RS" in dye_type:
             return ChemicalCalculator._indanthren_rs(total_percentage)
         elif "RRN" in dye_type:
@@ -42,9 +44,6 @@ class ChemicalCalculator:
             return ChemicalCalculator._indanthren_iw(total_percentage)
         elif "IN" in dye_type:
             return ChemicalCalculator._indanthren_in(total_percentage)
-        elif "BLACK" in dye_type:
-            # Indanthren Black مثل IW
-            return ChemicalCalculator._indanthren_iw(total_percentage)
         else:
             # افتراضي: IW
             return ChemicalCalculator._indanthren_iw(total_percentage)

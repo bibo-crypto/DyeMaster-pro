@@ -120,7 +120,7 @@ class PDFRecipeImporter:
                                     try:
                                         percentage_val = float(part.replace('%', ''))
                                         break
-                                    except:
+                                    except Exception:
                                         pass
                                 else:
                                     name_parts.append(part)

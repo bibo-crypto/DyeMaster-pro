@@ -26,6 +26,7 @@ from tkinter import messagebox, ttk
 import zipfile
 
 import requests
+from ui.theme_tokens import show_on_top
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
@@ -189,11 +190,7 @@ class AppUpdater:
                 progress_win.resizable(False, False)
                 if parent_window:
                     progress_win.transient(parent_window)
-                progress_win.lift()
-                progress_win.focus_force()
-                progress_win.grab_set()
-                progress_win.attributes("-topmost", True)
-                progress_win.after(250, lambda: progress_win.attributes("-topmost", False))
+                show_on_top(progress_win, parent_window)
                 shell = tk.Frame(progress_win, bg="#f3f7ff", bd=1, relief="solid")
                 shell.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
@@ -251,49 +248,79 @@ class AppUpdater:
             _last_t    = [_time.monotonic()]
 
             def _on_progress(done: int, total: int):
+                """Thread-safe progress callback — schedules UI updates via after()."""
                 if not progress_win:
                     return
                 now = _time.monotonic()
                 dt  = now - _last_t[0]
-                if dt > 0.2:
-                    spd      = (done - _last_b[0]) / dt
-                    _last_b[0] = done
-                    _last_t[0] = now
-                    spd_str  = (f"{spd/1048576:.1f} MB/s" if spd >= 1048576
-                                else f"{spd/1024:.0f} KB/s")
-                    speed_label.config(text=f"Speed: {spd_str}")
-                if total > 0:
-                    pct     = done / total * 100
-                    done_mb = done  / 1048576
-                    tot_mb  = total / 1048576
-                    elapsed = now - _t0[0]
-                    avg     = done / elapsed if elapsed > 0 else 0
-                    rem     = (total - done) / avg if avg > 0 else 0
-                    progress_var.set(pct)
-                    progress_label.config(
-                        text=f"{pct:.1f}%   -   {done_mb:.1f} MB / {tot_mb:.1f} MB"
-                    )
-                    if rem > 0:
-                        eta_label.config(
-                            text=(f"Time remaining: {rem:.0f} sec"
-                                  if rem < 60 else f"Time remaining: {rem/60:.1f} min")
-                        )
-                else:
-                    progress_label.config(text=f"Downloaded: {done//1024} KB")
-                    progress_var.set((progress_var.get() + 1) % 100)
-                progress_win.update()
 
-            try:
-                self._download_file(zip_url, zip_path, progress_callback=_on_progress)
-                result_holder[0] = True
-            except Exception as exc:
-                result_holder[0] = exc
-            finally:
-                if progress_win:
+                if dt > 0.2:
+                    spd         = (done - _last_b[0]) / dt
+                    _last_b[0]  = done
+                    _last_t[0]  = now
+                    spd_str     = (f"{spd/1048576:.1f} MB/s" if spd >= 1048576
+                                   else f"{spd/1024:.0f} KB/s")
+                else:
+                    spd_str = None
+
+                if total > 0:
+                    pct      = done / total * 100
+                    done_mb  = done  / 1048576
+                    tot_mb   = total / 1048576
+                    elapsed  = now - _t0[0]
+                    avg      = done / elapsed if elapsed > 0 else 0
+                    rem      = (total - done) / avg if avg > 0 else 0
+                    pct_text = f"{pct:.1f}%   -   {done_mb:.1f} MB / {tot_mb:.1f} MB"
+                    eta_text = (f"Time remaining: {rem:.0f} sec"
+                                if rem < 60 else f"Time remaining: {rem/60:.1f} min") if rem > 0 else ""
+                else:
+                    pct      = (progress_var.get() + 1) % 100
+                    pct_text = f"Downloaded: {done//1024} KB"
+                    eta_text = ""
+
+                # Schedule UI updates on main thread (thread-safe)
+                def _update_ui():
                     try:
-                        progress_win.destroy()
+                        if not progress_win or not progress_win.winfo_exists():
+                            return
+                        progress_var.set(pct)
+                        progress_label.config(text=pct_text)
+                        if spd_str:
+                            speed_label.config(text=f"Speed: {spd_str}")
+                        eta_label.config(text=eta_text)
                     except Exception:
                         pass
+                try:
+                    progress_win.after(0, _update_ui)
+                except Exception:
+                    pass
+
+            import threading as _threading
+
+            def _do_download():
+                try:
+                    self._download_file(zip_url, zip_path, progress_callback=_on_progress)
+                    result_holder[0] = True
+                except Exception as exc:
+                    result_holder[0] = exc
+
+            dl_thread = _threading.Thread(target=_do_download, daemon=True, name="DLThread")
+            dl_thread.start()
+            # Poll on the main thread so the progress window stays responsive
+            while dl_thread.is_alive():
+                try:
+                    if progress_win:
+                        progress_win.update()
+                except Exception:
+                    break
+                dl_thread.join(timeout=0.05)
+            dl_thread.join()
+
+            if progress_win:
+                try:
+                    progress_win.destroy()
+                except Exception:
+                    pass
 
             if isinstance(result_holder[0], Exception):
                 messagebox.showerror("Update Error", f"Download failed:\n{result_holder[0]}")
@@ -564,14 +591,17 @@ class AppUpdater:
 
     def _is_newer(self, latest: str, current: str) -> bool:
         def _v(s):
+            # Strip leading v/V and any pre-release suffix (-beta, -rc1 etc.)
+            s = str(s).lstrip("vV").strip()
             parts = []
-            for p in str(s).split("."):
+            for p in s.split("."):
+                p = re.split(r"[-+]", p)[0]
                 try:    parts.append(int(p))
-                except: parts.append(0)
+                except Exception: parts.append(0)
             while len(parts) < 3:
                 parts.append(0)
             return tuple(parts[:3])
         try:
             return _v(latest) > _v(current)
         except Exception:
-            return str(latest) > str(current)
+            return str(latest).lstrip("vV") > str(current).lstrip("vV")

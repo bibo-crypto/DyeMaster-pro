@@ -754,6 +754,23 @@ class RecipeCreatorWindow:
                     parent=self.window
                 )
                 return
+
+            # التحقق من عدم خلط Reattivi Caldi مع Freddi
+            is_new_caldi = "CALDI" in new_dye_type.upper()
+            is_new_freddi = "FREDDI" in new_dye_type.upper()
+            is_first_caldi = "CALDI" in first_dye_type.upper()
+            is_first_freddi = "FREDDI" in first_dye_type.upper()
+
+            if (is_new_caldi and is_first_freddi) or (is_new_freddi and is_first_caldi):
+                messagebox.showerror(
+                    "Incompatible Reactive Process",
+                    "Cannot mix REATTIVI CALDI with REATTIVI FREDDI in the same recipe.\n\n"
+                    f"Current recipe uses: {first_dye_type}\n"
+                    f"Trying to add: {new_dye_type}\n\n"
+                    "Please create a separate recipe for different processes.",
+                    parent=self.window
+                )
+                return
         
         price_text = color_data[4].replace('€', '').strip()
         try:
@@ -1099,4 +1116,3 @@ class RecipeCreatorWindow:
 
         self.display_colors(self.indanthren_tree, indanthren_samples)
         self.display_colors(self.reattivi_tree, reattivi_samples)
-

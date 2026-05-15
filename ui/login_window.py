@@ -8,6 +8,7 @@ from datetime import datetime
 from app.session import SessionManager
 from app.database import DatabaseManager
 from app.utils import get_desktop_exports_dir
+from ui.theme_tokens import show_on_top
 
 
 class LoginWindow:
@@ -160,7 +161,6 @@ class ResetCodeDialog:
     def ask(parent) -> str | None:
         win = tk.Toplevel(parent)
         win.title("Reset All Passwords")
-        win.grab_set()
         win.resizable(False, False)
 
         result = {"value": None}
@@ -201,15 +201,7 @@ class ResetCodeDialog:
         win.bind("<Return>", lambda _e: do_ok())
         win.bind("<Escape>", lambda _e: do_cancel())
         win.transient(parent)
-        win.update_idletasks()
-        # Center on parent
-        try:
-            px, py = parent.winfo_rootx(), parent.winfo_rooty()
-            pw, ph = parent.winfo_width(), parent.winfo_height()
-            ww, wh = win.winfo_width(), win.winfo_height()
-            win.geometry(f"+{px + (pw - ww)//2}+{py + (ph - wh)//2}")
-        except Exception:
-            pass
+        show_on_top(win, parent)
 
         parent.wait_window(win)
         return result["value"]
