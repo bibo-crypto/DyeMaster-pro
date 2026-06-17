@@ -4,8 +4,8 @@ DyeMaster Pro - CLIENT GUIDE
 Files you received
 ------------------
 1) DyeMasterPro_Setup.exe
-2) USERS.txt
-3) This file (README_CLIENT.txt)
+2) This file (README_CLIENT.txt)
+3) Default login credentials (sent separately/securely)
 
 Installation steps
 ------------------
@@ -15,8 +15,8 @@ Installation steps
 
 First login
 -----------
-Open USERS.txt and login with one of the provided accounts.
-Change default passwords after first use.
+Use the default account credentials provided to you separately.
+Change default passwords immediately after first use.
 
 Important notes
 ---------------

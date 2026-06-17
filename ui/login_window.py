@@ -14,8 +14,9 @@ from ui.theme_tokens import show_on_top
 class LoginWindow:
     """شاشة تسجيل الدخول"""
 
-    # Fixed emergency reset code (letters/numbers only). Deliver this to the client.
-    RESET_ALL_CODE = "__REDACTED__"
+    # Emergency reset code: read from environment variable for security.
+    # Set DYEMASTER_RESET_CODE on the client's machine; never hardcode or commit this value.
+    RESET_ALL_CODE = os.environ.get("DYEMASTER_RESET_CODE", "")
     
     def __init__(self, root, on_success_callback):
         self.root = root
@@ -125,7 +126,7 @@ class LoginWindow:
         entered = ResetCodeDialog.ask(self.root)
         if entered is None:
             return
-        if entered.strip() != self.RESET_ALL_CODE:
+        if not self.RESET_ALL_CODE or entered.strip() != self.RESET_ALL_CODE:
             messagebox.showerror("Denied", "Invalid reset code.", parent=self.root)
             return
 
