@@ -132,8 +132,8 @@ class LoginWindow:
 
         if messagebox.askyesno(
             "Confirm",
-            "This will restore default system users passwords:\n"
-            "admin/__DEFAULT__\ntech/__DEFAULT__\nviewer/__DEFAULT__\n\nContinue?",
+            "This will restore default system users with NEW random passwords.\n"
+            "New credentials will be saved to a file on the Desktop.\n\nContinue?",
             parent=self.root,
         ) is not True:
             return
@@ -146,11 +146,10 @@ class LoginWindow:
 
         messagebox.showinfo(
             "Done",
-            "Default system users restored:\n\n"
-            "admin / __DEFAULT__\n"
-            "tech  / __DEFAULT__\n"
-            "viewer / __DEFAULT__\n\n"
-            "Other users were NOT changed.",
+            "Default system users restored with new random passwords.\n\n"
+            "A file named 'DyeMaster_RESET_CREDENTIALS.txt' has been saved\n"
+            "to the Desktop with the new credentials.\n\n"
+            "⚠️  Delete that file after changing passwords inside the app.",
             parent=self.root,
         )
 

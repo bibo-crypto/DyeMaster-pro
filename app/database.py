@@ -692,11 +692,10 @@ class DatabaseManager:
 
     def reset_default_system_users(self) -> bool:
         """
-        Restore the default system accounts to their original credentials:
-        - admin / __DEFAULT__
-        - tech  / __DEFAULT__
-        - viewer / __DEFAULT__
+        Restore the default system accounts with NEW random passwords:
+        - admin, tech, viewer
 
+        New credentials are written to a file on the Desktop after reset.
         This does NOT touch other users.
         """
         conn = None
@@ -704,9 +703,13 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            admin_hash = self.hash_password("__DEFAULT__")
-            tech_hash = self.hash_password("__DEFAULT__")
-            viewer_hash = self.hash_password("__DEFAULT__")
+            # توليد باسوردات جديدة عشوائية — لا يجب أن تكون قيم ثابتة معروفة للعامة.
+            admin_plain = secrets.token_urlsafe(12)
+            tech_plain = secrets.token_urlsafe(12)
+            viewer_plain = secrets.token_urlsafe(12)
+            admin_hash = self.hash_password(admin_plain)
+            tech_hash = self.hash_password(tech_plain)
+            viewer_hash = self.hash_password(viewer_plain)
 
             # Ensure accounts exist and are active with correct roles.
             cursor.execute(
@@ -737,6 +740,23 @@ class DatabaseManager:
 
             conn.commit()
             self._invalidate_read_cache()
+
+            # كتابة الباسوردات الجديدة لملف نص على سطح المكتب بعد الـreset.
+            try:
+                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+                creds_path = os.path.join(desktop, "DyeMaster_RESET_CREDENTIALS.txt")
+                with open(creds_path, "w", encoding="utf-8") as cf:
+                    cf.write("DyeMaster Pro — بيانات الدخول بعد إعادة الضبط\n")
+                    cf.write("=" * 40 + "\n")
+                    cf.write(f"admin   / {admin_plain}\n")
+                    cf.write(f"tech    / {tech_plain}\n")
+                    cf.write(f"viewer  / {viewer_plain}\n")
+                    cf.write("=" * 40 + "\n")
+                    cf.write("⚠️  احذف هذا الملف بعد تغيير كلمات المرور.\n")
+                print(f"Reset credentials saved to: {creds_path}")
+            except Exception as creds_err:
+                print(f"Warning: could not write credentials file: {creds_err}")
+
             return True
         except Exception as e:
             try:
@@ -803,9 +823,13 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            admin_hash = hashlib.sha256("__DEFAULT__".encode()).hexdigest()
-            tech_hash = hashlib.sha256("__DEFAULT__".encode()).hexdigest()
-            viewer_hash = hashlib.sha256("__DEFAULT__".encode()).hexdigest()
+            # توليد كلمات مرور عشوائية آمنة لأول تشغيل — لا يجب أن تكون قيم ثابتة معروفة للعامة.
+            admin_plain = secrets.token_urlsafe(12)
+            tech_plain = secrets.token_urlsafe(12)
+            viewer_plain = secrets.token_urlsafe(12)
+            admin_hash = self.hash_password(admin_plain)
+            tech_hash = self.hash_password(tech_plain)
+            viewer_hash = self.hash_password(viewer_plain)
 
             # Normalize legacy roles without deleting custom users.
             cursor.execute("UPDATE users SET role = 'tech' WHERE role = 'technician'")
@@ -846,6 +870,23 @@ class DatabaseManager:
                 )
 
             conn.commit()
+
+            # كتابة بيانات الدخول الأولى لملف نص على سطح المكتب — يُحذف بعد تغيير الباسوردات.
+            try:
+                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+                creds_path = os.path.join(desktop, "DyeMaster_FIRST_LOGIN.txt")
+                with open(creds_path, "w", encoding="utf-8") as f:
+                    f.write("DyeMaster Pro — بيانات الدخول الأولى\n")
+                    f.write("=" * 40 + "\n")
+                    f.write(f"admin   / {admin_plain}\n")
+                    f.write(f"tech    / {tech_plain}\n")
+                    f.write(f"viewer  / {viewer_plain}\n")
+                    f.write("=" * 40 + "\n")
+                    f.write("⚠️  احذف هذا الملف بعد تغيير كلمات المرور من داخل البرنامج.\n")
+                print(f"First-login credentials saved to: {creds_path}")
+            except Exception as creds_err:
+                print(f"Warning: could not write credentials file: {creds_err}")
+
             print("Created/Verified default users: admin, tech, viewer")
             return True
         except Exception as e:
