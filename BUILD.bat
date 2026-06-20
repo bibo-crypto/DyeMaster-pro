@@ -27,6 +27,61 @@ if errorlevel 1 (
 )
 
 REM ========================================
+REM Create virtual environment if missing
+REM ========================================
+
+if not exist "venv\Scripts\activate.bat" (
+    echo.
+    echo Virtual environment not found. Creating venv...
+    echo.
+
+    python -m venv venv
+
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Failed to create virtual environment!
+        pause
+        exit /b 1
+    )
+) else (
+    echo.
+    echo Virtual environment found. Skipping creation.
+)
+
+REM ========================================
+REM Activate virtual environment
+REM ========================================
+
+echo.
+echo Activating virtual environment...
+call "venv\Scripts\activate.bat"
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to activate virtual environment!
+    pause
+    exit /b 1
+)
+
+REM ========================================
+REM Install requirements.txt
+REM ========================================
+
+echo.
+echo Installing requirements.txt...
+echo.
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to install requirements!
+    pause
+    exit /b 1
+)
+
+REM ========================================
 REM Check PyInstaller
 REM ========================================
 

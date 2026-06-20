@@ -10,8 +10,6 @@
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas = [
-    ('.tcl/tcl8.6',  'tcl8.6'),
-    ('.tcl/tk8.6',   'tk8.6'),
     ('version.txt',  '.'),       # bundled inside the folder; updater replaces it
     ('icon.ico',     '.'),
 ]
