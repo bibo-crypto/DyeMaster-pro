@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Build / packaging artifacts
+build/
+dist/
+*.exe
+*.spec.bak
+.tmp_pycache/
+installer_output/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.tcl/
+.tk/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets / credentials — لا يجب أبداً رفع ملفات تحتوي كلمات مرور أو أكواد استرجاع
+*password*.txt
+*passowerd*.txt
+USERS.txt
+.env
+.env.*
+
+# Reports generated locally
+audit_report.md
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
