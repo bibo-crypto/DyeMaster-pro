@@ -7,10 +7,15 @@ __pycache__/
 # Build / packaging artifacts
 build/
 dist/
+output/
 *.exe
 *.spec.bak
 .tmp_pycache/
 installer_output/
+
+# Logs
+*_log.txt
+build_log.txt
 
 # Virtual environments
 .venv/
