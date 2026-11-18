@@ -4,10 +4,8 @@
 import tkinter as tk
 from tkinter import messagebox
 import os
-from datetime import datetime
 from app.session import SessionManager
 from app.database import DatabaseManager
-from app.utils import get_desktop_exports_dir
 from ui.theme_tokens import show_on_top
 
 
@@ -133,7 +131,7 @@ class LoginWindow:
         if messagebox.askyesno(
             "Confirm",
             "This will restore default system users with NEW random passwords.\n"
-            "New credentials will be saved to a file on the Desktop.\n\nContinue?",
+            "New credentials will be saved to a text file (Desktop, or the app data folder).\n\nContinue?",
             parent=self.root,
         ) is not True:
             return
@@ -144,11 +142,13 @@ class LoginWindow:
             messagebox.showerror("Error", "Password reset failed.", parent=self.root)
             return
 
+        creds_path = getattr(db, "last_credentials_path", None)
+        where = creds_path or "(could not be saved - check folder permissions)"
         messagebox.showinfo(
             "Done",
             "Default system users restored with new random passwords.\n\n"
-            "A file named 'DyeMaster_RESET_CREDENTIALS.txt' has been saved\n"
-            "to the Desktop with the new credentials.\n\n"
+            "The new credentials were saved to:\n"
+            f"{where}\n\n"
             "⚠️  Delete that file after changing passwords inside the app.",
             parent=self.root,
         )

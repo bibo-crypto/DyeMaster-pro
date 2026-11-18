@@ -16,14 +16,21 @@ datas = [
 binaries       = []
 hiddenimports  = [
     'app.gui', 'tkinter', '_tkinter',
-    'pandas', 'openpyxl', 'PIL', 'PIL._tkinter_finder',
+    'PIL', 'PIL._tkinter_finder',
     'xml.etree.ElementTree', 'pickle', 'logging', 'datetime',
 ]
 hiddenimports += collect_submodules('app')
 hiddenimports += collect_submodules('ui')
 
-for pkg in ('openpyxl', 'PIL'):
-    tmp = collect_all(pkg)
+# Packages that ship data files / dynamic imports PyInstaller can miss.
+# (pandas / numpy / openpyxl were removed: the code never imports them,
+#  and they added ~100 MB to every build and update download.)
+for pkg in ('PIL', 'reportlab', 'pdfplumber', 'pdfminer', 'pypdfium2'):
+    try:
+        tmp = collect_all(pkg)
+    except Exception as exc:          # package not installed -> skip, don't fail the build
+        print(f"[spec] collect_all({pkg}) skipped: {exc}")
+        continue
     datas         += tmp[0]
     binaries      += tmp[1]
     hiddenimports += tmp[2]
@@ -37,7 +44,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=['runtime_tk_hook.py'],
-    excludes=['pytest'],
+    excludes=['pytest', 'pandas', 'numpy', 'openpyxl', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )

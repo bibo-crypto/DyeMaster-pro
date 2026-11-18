@@ -5,7 +5,8 @@ Files you received
 ------------------
 1) DyeMasterPro_Setup.exe
 2) This file (README_CLIENT.txt)
-3) Default login credentials (sent separately/securely)
+3) Login credentials: created automatically on first launch in the file
+   DyeMaster_FIRST_LOGIN.txt (Desktop, or %LOCALAPPDATA%\DyeMasterPro if Desktop is unavailable)
 
 Installation steps
 ------------------
@@ -15,7 +16,7 @@ Installation steps
 
 First login
 -----------
-Use the default account credentials provided to you separately.
+Use the credentials from DyeMaster_FIRST_LOGIN.txt, then delete that file.
 Change default passwords immediately after first use.
 
 Important notes

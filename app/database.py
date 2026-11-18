@@ -6,10 +6,13 @@ import os
 import stat
 import shutil
 import hashlib
+import hmac
+import re
 import secrets
 import string
 import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from app.utils import get_current_timestamp, clean_recipe_code
 from app.config import DATABASE_FILE, BACKUP_DIR, USER_DATA_DIR
@@ -331,6 +334,7 @@ class DatabaseManager:
         # Logger removed - original state
         self.db_file = db_file or DATABASE_FILE
         self._using_workspace_fallback = False
+        self.last_credentials_path = None
         # تأمين صلاحيات الملف مرة واحدة فقط عند التشغيل
         self._ensure_db_writable()
         
@@ -571,9 +575,68 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
+    # ---- Password hashing -------------------------------------------------
+    # New hashes: "pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex>" (salted).
+    # Legacy hashes (plain unsalted SHA-256 hex) are still accepted on login and
+    # are transparently upgraded by SessionManager.login().
+    _PW_SCHEME = "pbkdf2_sha256"
+    _PW_ITERATIONS = 200_000
+
     @staticmethod
     def hash_password(password: str) -> str:
-        return hashlib.sha256((password or "").encode()).hexdigest()
+        salt = secrets.token_bytes(16)
+        iterations = DatabaseManager._PW_ITERATIONS
+        digest = hashlib.pbkdf2_hmac(
+            "sha256", (password or "").encode("utf-8"), salt, iterations
+        )
+        return f"{DatabaseManager._PW_SCHEME}${iterations}${salt.hex()}${digest.hex()}"
+
+    @staticmethod
+    def verify_password(password: str, stored_hash: str) -> bool:
+        """Verify a password against a PBKDF2 hash or a legacy SHA-256 hash."""
+        stored_hash = (stored_hash or "").strip()
+        raw = (password or "").encode("utf-8")
+        try:
+            if stored_hash.startswith(DatabaseManager._PW_SCHEME + "$"):
+                _scheme, iterations, salt_hex, hash_hex = stored_hash.split("$", 3)
+                digest = hashlib.pbkdf2_hmac(
+                    "sha256", raw, bytes.fromhex(salt_hex), int(iterations)
+                )
+                return hmac.compare_digest(digest.hex(), hash_hex.lower())
+            legacy = hashlib.sha256(raw).hexdigest()
+            return hmac.compare_digest(legacy, stored_hash.lower())
+        except Exception:
+            return False
+
+    @staticmethod
+    def password_needs_upgrade(stored_hash: str) -> bool:
+        return not (stored_hash or "").startswith(DatabaseManager._PW_SCHEME + "$")
+
+    # ---- Credentials hand-off file ---------------------------------------
+    def _write_credentials_file(self, filename: str, lines: list) -> Optional[str]:
+        """Write a credentials text file to the Desktop (OneDrive Desktop, or the
+        app data folder as a last resort so the admin is never locked out)."""
+        home = os.path.expanduser("~")
+        candidates = [
+            os.path.join(home, "Desktop"),
+            os.path.join(home, "OneDrive", "Desktop"),
+            USER_DATA_DIR,
+        ]
+        for folder in candidates:
+            try:
+                if not os.path.isdir(folder):
+                    if folder != USER_DATA_DIR:
+                        continue
+                    os.makedirs(folder, exist_ok=True)
+                path = os.path.join(folder, filename)
+                with open(path, "a" if os.path.exists(path) else "w", encoding="utf-8") as fh:
+                    if fh.tell():
+                        fh.write("\n")
+                    fh.write("\n".join(lines) + "\n")
+                return path
+            except Exception as err:
+                print(f"Warning: could not write {filename} to {folder}: {err}")
+        return None
 
     def update_user_password(self, user_id: int, new_password: str) -> bool:
         conn = None
@@ -741,21 +804,22 @@ class DatabaseManager:
             conn.commit()
             self._invalidate_read_cache()
 
-            # كتابة الباسوردات الجديدة لملف نص على سطح المكتب بعد الـreset.
-            try:
-                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-                creds_path = os.path.join(desktop, "DyeMaster_RESET_CREDENTIALS.txt")
-                with open(creds_path, "w", encoding="utf-8") as cf:
-                    cf.write("DyeMaster Pro — بيانات الدخول بعد إعادة الضبط\n")
-                    cf.write("=" * 40 + "\n")
-                    cf.write(f"admin   / {admin_plain}\n")
-                    cf.write(f"tech    / {tech_plain}\n")
-                    cf.write(f"viewer  / {viewer_plain}\n")
-                    cf.write("=" * 40 + "\n")
-                    cf.write("⚠️  احذف هذا الملف بعد تغيير كلمات المرور.\n")
+            # Write the new passwords to a hand-off file (Desktop, else app data folder).
+            lines = [
+                "DyeMaster Pro — بيانات الدخول بعد إعادة الضبط",
+                "=" * 40,
+                f"admin   / {admin_plain}",
+                f"tech    / {tech_plain}",
+                f"viewer  / {viewer_plain}",
+                "=" * 40,
+                "⚠️  احذف هذا الملف بعد تغيير كلمات المرور.",
+            ]
+            creds_path = self._write_credentials_file("DyeMaster_RESET_CREDENTIALS.txt", lines)
+            self.last_credentials_path = creds_path
+            if creds_path:
                 print(f"Reset credentials saved to: {creds_path}")
-            except Exception as creds_err:
-                print(f"Warning: could not write credentials file: {creds_err}")
+            else:
+                print("Warning: reset credentials could not be saved anywhere.")
 
             return True
         except Exception as e:
@@ -817,19 +881,17 @@ class DatabaseManager:
                 conn.close()
 
     def create_default_users(self):
-        """Create required system users if they do not already exist."""
+        """Create required system users if they do not already exist.
+
+        Random first-login passwords are generated ONLY for accounts that are
+        actually created now, and only those are written to the hand-off file.
+        (Previously new random passwords were generated and the Desktop file was
+        rewritten on every launch, even though no password had changed.)
+        """
         conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-
-            # توليد كلمات مرور عشوائية آمنة لأول تشغيل — لا يجب أن تكون قيم ثابتة معروفة للعامة.
-            admin_plain = secrets.token_urlsafe(12)
-            tech_plain = secrets.token_urlsafe(12)
-            viewer_plain = secrets.token_urlsafe(12)
-            admin_hash = self.hash_password(admin_plain)
-            tech_hash = self.hash_password(tech_plain)
-            viewer_hash = self.hash_password(viewer_plain)
 
             # Normalize legacy roles without deleting custom users.
             cursor.execute("UPDATE users SET role = 'tech' WHERE role = 'technician'")
@@ -840,54 +902,46 @@ class DatabaseManager:
             # If the system accounts were renamed by the admin UI, avoid recreating duplicates.
             # Create defaults only when the username is missing *and* there is no user with that role.
             def _username_exists(username: str) -> bool:
-                try:
-                    cursor.execute("SELECT 1 FROM users WHERE username = ? LIMIT 1", (username,))
-                    return cursor.fetchone() is not None
-                except Exception:
-                    return False
+                cursor.execute("SELECT 1 FROM users WHERE username = ? LIMIT 1", (username,))
+                return cursor.fetchone() is not None
 
             def _role_exists(role: str) -> bool:
-                try:
-                    cursor.execute("SELECT 1 FROM users WHERE role = ? LIMIT 1", (role,))
-                    return cursor.fetchone() is not None
-                except Exception:
-                    return False
+                cursor.execute("SELECT 1 FROM users WHERE role = ? LIMIT 1", (role,))
+                return cursor.fetchone() is not None
 
-            if (not _username_exists("admin")) and (not _role_exists("admin")):
+            created = {}
+            for name in ("admin", "tech", "viewer"):
+                if _username_exists(name) or _role_exists(name):
+                    continue
+                plain = secrets.token_urlsafe(12)
                 cursor.execute(
-                    "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
-                    ("admin", admin_hash),
+                    "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                    (name, self.hash_password(plain), name),
                 )
-            if (not _username_exists("tech")) and (not _role_exists("tech")):
-                cursor.execute(
-                    "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'tech')",
-                    ("tech", tech_hash),
-                )
-            if (not _username_exists("viewer")) and (not _role_exists("viewer")):
-                cursor.execute(
-                    "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'viewer')",
-                    ("viewer", viewer_hash),
-                )
+                if cursor.rowcount:
+                    created[name] = plain
 
             conn.commit()
 
-            # كتابة بيانات الدخول الأولى لملف نص على سطح المكتب — يُحذف بعد تغيير الباسوردات.
-            try:
-                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-                creds_path = os.path.join(desktop, "DyeMaster_FIRST_LOGIN.txt")
-                with open(creds_path, "w", encoding="utf-8") as f:
-                    f.write("DyeMaster Pro — بيانات الدخول الأولى\n")
-                    f.write("=" * 40 + "\n")
-                    f.write(f"admin   / {admin_plain}\n")
-                    f.write(f"tech    / {tech_plain}\n")
-                    f.write(f"viewer  / {viewer_plain}\n")
-                    f.write("=" * 40 + "\n")
-                    f.write("⚠️  احذف هذا الملف بعد تغيير كلمات المرور من داخل البرنامج.\n")
-                print(f"First-login credentials saved to: {creds_path}")
-            except Exception as creds_err:
-                print(f"Warning: could not write credentials file: {creds_err}")
-
-            print("Created/Verified default users: admin, tech, viewer")
+            if created:
+                lines = [
+                    "DyeMaster Pro — بيانات الدخول الأولى",
+                    "=" * 40,
+                ]
+                lines += [f"{name:<8}/ {pw}" for name, pw in created.items()]
+                lines += [
+                    "=" * 40,
+                    "⚠️  احذف هذا الملف بعد تغيير كلمات المرور من داخل البرنامج.",
+                ]
+                creds_path = self._write_credentials_file("DyeMaster_FIRST_LOGIN.txt", lines)
+                self.last_credentials_path = creds_path
+                if creds_path:
+                    print(f"First-login credentials saved to: {creds_path}")
+                else:
+                    print("Warning: first-login credentials could not be saved anywhere.")
+                print(f"Created default users: {', '.join(created)}")
+            else:
+                print("Default users already present - nothing to create.")
             return True
         except Exception as e:
             if "readonly" in str(e).lower() and not self._using_workspace_fallback:
@@ -1090,7 +1144,7 @@ class DatabaseManager:
                 )
             ''')
             try:
-                cursor.execute('ALTER TABLE colors ADD COLUMN current_lotto TEXT DEFAULT ""')
+                cursor.execute("ALTER TABLE colors ADD COLUMN current_lotto TEXT DEFAULT ''")
             except sqlite3.OperationalError:
                 pass
 
@@ -2215,6 +2269,71 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
+    # ---- Backup / restore helpers ----------------------------------------
+    @staticmethod
+    def _copy_db_file(src: str, dst: str) -> None:
+        """Consistent copy of a SQLite DB (uses the sqlite3 backup API so a
+        write in progress can't produce a torn file); falls back to a plain copy."""
+        src_conn = dst_conn = None
+        try:
+            src_conn = sqlite3.connect(src)
+            dst_conn = sqlite3.connect(dst)
+            src_conn.backup(dst_conn)
+        except Exception:
+            if dst_conn:
+                dst_conn.close()
+                dst_conn = None
+            if src_conn:
+                src_conn.close()
+                src_conn = None
+            shutil.copy2(src, dst)
+        finally:
+            if dst_conn:
+                dst_conn.close()
+            if src_conn:
+                src_conn.close()
+
+    @staticmethod
+    def _validate_sqlite_file(path: str) -> None:
+        """Raise ValueError unless *path* is a healthy DyeMaster Pro database."""
+        conn = None
+        try:
+            uri = Path(path).resolve().as_uri() + "?mode=ro"
+            conn = sqlite3.connect(uri, uri=True)
+            row = conn.execute("PRAGMA quick_check").fetchone()
+            if not row or str(row[0]).lower() != "ok":
+                raise ValueError("database integrity check failed")
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            missing = {"colors", "recipes", "users"} - tables
+            if missing:
+                raise ValueError(f"not a DyeMaster Pro database (missing tables: {', '.join(sorted(missing))})")
+        except sqlite3.DatabaseError as e:
+            raise ValueError(f"not a valid SQLite database: {e}") from e
+        finally:
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def _prune_backups(backup_dir: str, keep_daily: int = 30, keep_stamped: int = 20) -> None:
+        """Best-effort retention so the backups folder doesn't grow forever."""
+        try:
+            daily, stamped = [], []
+            for name in os.listdir(backup_dir):
+                full = os.path.join(backup_dir, name)
+                if re.fullmatch(r"DyeMasterPro_Backup_\d{8}\.db", name):
+                    daily.append(full)
+                elif re.fullmatch(r"DyeMasterPro_Backup_\d{8}_\d{6}\.db", name):
+                    stamped.append(full)
+            for group, keep in ((daily, keep_daily), (stamped, keep_stamped)):
+                group.sort(key=os.path.getmtime, reverse=True)
+                for old in group[keep:]:
+                    try:
+                        os.remove(old)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+
     def backup_database(self, once_per_day: bool = False, always_latest: bool = False) -> Optional[str]:
         """إنشاء نسخة احتياطية من قاعدة البيانات.
 
@@ -2235,23 +2354,24 @@ class DatabaseManager:
             # نسخ ملف النسخة الأخيرة دائماً
             if always_latest:
                 latest_path = os.path.join(backup_dir, "DyeMasterPro_Backup_Latest.db")
-                shutil.copy2(self.db_file, latest_path)
+                self._copy_db_file(self.db_file, latest_path)
                 backup_files.append(latest_path)
 
             # نسخة يومية مرة واحدة
             if once_per_day:
                 daily_file = os.path.join(backup_dir, f"DyeMasterPro_Backup_{day_stamp}.db")
                 if not os.path.exists(daily_file):
-                    shutil.copy2(self.db_file, daily_file)
+                    self._copy_db_file(self.db_file, daily_file)
                     backup_files.append(daily_file)
 
             # افتراضي: حفظ نسخة مؤرخة (سابقاً)
             if not once_per_day and not always_latest:
                 archive_file = os.path.join(backup_dir, f"DyeMasterPro_Backup_{timestamp}.db")
-                shutil.copy2(self.db_file, archive_file)
+                self._copy_db_file(self.db_file, archive_file)
                 backup_files.append(archive_file)
 
             if backup_files:
+                self._prune_backups(backup_dir)
                 return backup_files[-1]
             return None
 
@@ -2259,18 +2379,48 @@ class DatabaseManager:
             raise Exception(f"Failed to backup database: {str(e)}")
 
     def restore_database(self, backup_file: str) -> bool:
-        """استعادة قاعدة البيانات من ملف نسخة احتياطية"""
+        """استعادة قاعدة البيانات من ملف نسخة احتياطية.
+
+        The backup is validated BEFORE anything is overwritten, and the current
+        database is kept as '<db>.before_restore' so a bad restore can be undone.
+        """
         try:
             if not backup_file or not os.path.isfile(backup_file):
                 raise FileNotFoundError(f"Backup file not found: {backup_file}")
 
-            os.makedirs(os.path.dirname(self.db_file), exist_ok=True)
-            shutil.copy2(backup_file, self.db_file)
+            self._validate_sqlite_file(backup_file)
 
-            # تأكيد أن الملف الجديد قابل للقراءة
-            conn = sqlite3.connect(self.db_file)
-            conn.execute("SELECT name FROM sqlite_master LIMIT 1")
-            conn.close()
+            os.makedirs(os.path.dirname(self.db_file), exist_ok=True)
+
+            safety_copy = self.db_file + ".before_restore"
+            had_current = os.path.isfile(self.db_file)
+            if had_current:
+                try:
+                    self._copy_db_file(self.db_file, safety_copy)
+                except Exception as e:
+                    print(f"Warning: could not create pre-restore safety copy: {e}")
+                    had_current = False
+
+            tmp_path = self.db_file + ".restore_tmp"
+            try:
+                shutil.copy2(backup_file, tmp_path)
+                os.replace(tmp_path, self.db_file)
+                self._validate_sqlite_file(self.db_file)
+            except Exception:
+                if had_current and os.path.isfile(safety_copy):
+                    shutil.copy2(safety_copy, self.db_file)
+                raise
+            finally:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+
+            try:
+                self._invalidate_read_cache()
+            except Exception:
+                pass
             return True
         except Exception as e:
             raise Exception(f"Failed to restore database: {str(e)}")

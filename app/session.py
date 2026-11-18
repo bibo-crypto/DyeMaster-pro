@@ -1,7 +1,6 @@
 """
 Session and permission manager - DyeMaster Pro
 """
-import hashlib
 from app.database import DatabaseManager
 
 
@@ -50,6 +49,12 @@ class SessionManager:
         """Authenticate user and open session."""
         user = self.db.get_user_by_username(username)
         if user and self._verify_password(password, user.password_hash):
+            # Transparently upgrade legacy unsalted SHA-256 hashes to salted PBKDF2.
+            try:
+                if self.db.password_needs_upgrade(user.password_hash):
+                    self.db.update_user_password(user.id, password)
+            except Exception as e:
+                print(f"Password hash upgrade skipped: {e}")
             self.current_user = user
             self._perm_overrides = self.db.get_user_permission_overrides(user.id) if user.id else {}
             self.db.update_user_last_login(user.id)
@@ -62,8 +67,8 @@ class SessionManager:
         self._perm_overrides = {}
 
     def _verify_password(self, password: str, hash_str: str) -> bool:
-        """Verify password hash (SHA256)."""
-        return hashlib.sha256(password.encode()).hexdigest() == hash_str
+        """Verify a password (salted PBKDF2, or legacy SHA-256 for old databases)."""
+        return self.db.verify_password(password, hash_str)
 
     def _normalize_role(self, role: str) -> str:
         role_value = (role or "").strip().lower()

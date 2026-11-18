@@ -1,6 +1,6 @@
 #define ProjectRoot AddBackslash(SourcePath)
 #define MyAppName "DyeMaster Pro"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "DyeMaster Pro"
 #define MyAppExeName "DyeMasterPro.exe"
 #define MyDistDir ProjectRoot + "dist\\DyeMasterPro"
@@ -37,8 +37,8 @@ Source: "{#MyDistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Source: "{#ProjectRoot}vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autodesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; Install VC++ runtime if bundled

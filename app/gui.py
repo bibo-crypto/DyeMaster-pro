@@ -6,7 +6,6 @@ from tkinter import ttk, filedialog, messagebox
 import os
 import sys
 from datetime import datetime
-import shutil
 import sqlite3
 import threading
 
@@ -42,12 +41,13 @@ class DyeMasterProGUI:
         
         # تعيين أيقونة البرنامج
         try:
-            if os.path.exists("icon.ico"):
-                self.root.iconbitmap("icon.ico")
+            icon_path = self._resolve_resource("icon.ico")
+            if icon_path:
+                self.root.iconbitmap(icon_path)
         except Exception as e:
             print(f"Icon load failed (normal): {e}")
             
-        self.root.after(1, lambda: self.root.state('zoomed'))
+        self.root.after(1, self._maximize_window)
         self.root.after(1200, self.check_for_updates_silent)
 
         # [OK] إصلاح: استخدام قيمة افتراضية إذا MAIN_WINDOW_SIZE غير مُعرّف
@@ -96,6 +96,31 @@ class DyeMasterProGUI:
 
         # ربط حدث إغلاق البرنامج بدالة النسخ الاحتياطي التلقائي
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    @staticmethod
+    def _resolve_resource(name: str):
+        """Locate a bundled resource for source runs and for PyInstaller onedir builds."""
+        bases = []
+        if getattr(sys, "frozen", False):
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            bases += [exe_dir, os.path.join(exe_dir, "_internal"), getattr(sys, "_MEIPASS", "")]
+        bases.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        bases.append(os.getcwd())
+        for base in bases:
+            if base:
+                candidate = os.path.join(base, name)
+                if os.path.exists(candidate):
+                    return candidate
+        return None
+
+    def _maximize_window(self):
+        try:
+            self.root.state("zoomed")          # Windows
+        except tk.TclError:
+            try:
+                self.root.attributes("-zoomed", True)   # Linux
+            except tk.TclError:
+                pass
 
     def _has_permission(self, permission: str) -> bool:
         return self.session.has_permission(permission)
@@ -299,14 +324,16 @@ class DyeMasterProGUI:
             # Safety backup before restore.
             safety_backup_path = self.db.backup_database()
 
-            db_file = self.db.db_file
-            os.makedirs(os.path.dirname(db_file), exist_ok=True)
-            shutil.copy2(backup_file, db_file)
-
-            # Quick validation that restored file is a readable sqlite DB.
-            conn = sqlite3.connect(db_file)
-            conn.execute("SELECT name FROM sqlite_master LIMIT 1")
-            conn.close()
+            # restore_database() validates the file BEFORE touching the live DB
+            # (a corrupt/non-DyeMaster file is rejected) and keeps a pre-restore copy.
+            self.db.restore_database(backup_file)
+            # Older backups may lack newer tables/columns: re-run the (idempotent) schema setup.
+            self.db.ensure_database_exists()
+            try:
+                self.session.refresh_permissions()
+                self._sync_permissions_ui()
+            except Exception:
+                pass
 
             self.load_data()
             messagebox.showinfo(
@@ -443,17 +470,31 @@ class DyeMasterProGUI:
         """Silent startup update check — runs in background thread to avoid blocking UI."""
         import threading
 
+        outcome = {"done": False, "update": None}
+
         def _check():
             try:
                 is_update, version, notes, download_info = self.updater.check_for_updates()
                 if is_update:
-                    # Schedule the dialog back on the main thread
-                    self.root.after(0, lambda: self._prompt_update(version, download_info))
+                    outcome["update"] = (version, download_info)
             except Exception as e:
                 print(f"[Updater] Silent check failed: {e}")
+            finally:
+                outcome["done"] = True
 
-        t = threading.Thread(target=_check, daemon=True, name="UpdateChecker")
-        t.start()
+        def _poll():
+            # Runs on the Tk main thread (the worker never calls Tk).
+            try:
+                if not outcome["done"]:
+                    self.root.after(250, _poll)
+                elif outcome["update"]:
+                    version, download_info = outcome["update"]
+                    self._prompt_update(version, download_info)
+            except tk.TclError:
+                pass  # window closed meanwhile
+
+        threading.Thread(target=_check, daemon=True, name="UpdateChecker").start()
+        self.root.after(250, _poll)
 
     def _prompt_update(self, version: str, download_info):
         """Called on the main thread after background check finds an update."""
@@ -1045,7 +1086,7 @@ Developer: Bibo Marcos
             except Exception as e:
                 results["error"] = e
             finally:
-                self.root.after(0, _start_insert)
+                results["done"] = True   # picked up by _poll() on the main thread
 
         def _start_insert():
             if generation != getattr(self, "_load_generation", 0):
@@ -1057,7 +1098,17 @@ Developer: Bibo Marcos
             active_codes = results["active_codes"] or set()
             self._insert_colors_in_chunks(colors, active_codes, selected_code, generation, chunk_size)
 
+        def _poll():
+            try:
+                if not results.get("done"):
+                    self.root.after(30, _poll)
+                else:
+                    _start_insert()
+            except tk.TclError:
+                pass  # window closed meanwhile
+
         threading.Thread(target=_fetch_db, daemon=True, name="LoadColors").start()
+        self.root.after(30, _poll)
 
     def _insert_colors_in_chunks(
         self,
@@ -1670,7 +1721,7 @@ Developer: Bibo Marcos
                 backup_file = os.path.join(folder, f"DyeMasterPro_Backup_{timestamp}.db")
 
                 # نسخ ملف قاعدة البيانات
-                shutil.copy2(db_file, backup_file)
+                self.db._copy_db_file(db_file, backup_file)
 
                 # إنشاء ملف معلومات
                 info_file = os.path.join(folder, f"Backup_Info_{timestamp}.txt")

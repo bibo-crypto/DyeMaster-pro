@@ -17,7 +17,9 @@ Update flow:
 """
 
 import ctypes
+import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -115,7 +117,11 @@ class AppUpdater:
             zip_url, ver_url = self._extract_asset_urls(data)
             if not zip_url:
                 return False, self.current_version, "", None
-            payload = {"zip_url": zip_url, "ver_url": ver_url}
+            payload = {
+                "zip_url": zip_url,
+                "ver_url": ver_url,
+                "zip_sha256": self._find_asset_digest(data, zip_url),
+            }
             return True, ver, data.get("body", ""), payload
         except Exception as exc:
             print(f"[Updater] get_latest_release: {exc}")
@@ -152,7 +158,6 @@ class AppUpdater:
             install_dir = _get_install_dir()          # e.g. E:\dist\main
             exe_name    = os.path.basename(sys.executable)   # main.exe
             exe_stem    = os.path.splitext(exe_name)[0]      # main
-            current_exe = os.path.abspath(sys.executable)
 
             # Staging paths – all inside install_dir (same NTFS volume)
             install_writable = _is_dir_writable(install_dir)
@@ -243,55 +248,45 @@ class AppUpdater:
                 progress_win = None
 
             import time as _time
-            _t0        = [_time.monotonic()]
-            _last_b    = [0]
-            _last_t    = [_time.monotonic()]
+            _t0      = _time.monotonic()
+            _state   = {"done": 0, "total": 0}
+            _speed   = {"b": 0, "t": _t0, "txt": ""}
 
             def _on_progress(done: int, total: int):
-                """Thread-safe progress callback — schedules UI updates via after()."""
+                """Runs in the download thread: only stores numbers (no Tk calls)."""
+                _state["done"] = done
+                _state["total"] = total
+
+            def _refresh_progress_ui():
+                """Runs on the main thread: translate stored numbers into widgets."""
                 if not progress_win:
                     return
+                done, total = _state["done"], _state["total"]
                 now = _time.monotonic()
-                dt  = now - _last_t[0]
-
-                if dt > 0.2:
-                    spd         = (done - _last_b[0]) / dt
-                    _last_b[0]  = done
-                    _last_t[0]  = now
-                    spd_str     = (f"{spd/1048576:.1f} MB/s" if spd >= 1048576
-                                   else f"{spd/1024:.0f} KB/s")
-                else:
-                    spd_str = None
-
+                dt = now - _speed["t"]
+                if dt > 0.4:
+                    spd = (done - _speed["b"]) / dt
+                    _speed["b"], _speed["t"] = done, now
+                    _speed["txt"] = (f"Speed: {spd/1048576:.1f} MB/s" if spd >= 1048576
+                                     else f"Speed: {spd/1024:.0f} KB/s")
                 if total > 0:
-                    pct      = done / total * 100
-                    done_mb  = done  / 1048576
-                    tot_mb   = total / 1048576
-                    elapsed  = now - _t0[0]
-                    avg      = done / elapsed if elapsed > 0 else 0
-                    rem      = (total - done) / avg if avg > 0 else 0
-                    pct_text = f"{pct:.1f}%   -   {done_mb:.1f} MB / {tot_mb:.1f} MB"
-                    eta_text = (f"Time remaining: {rem:.0f} sec"
-                                if rem < 60 else f"Time remaining: {rem/60:.1f} min") if rem > 0 else ""
+                    pct = done / total * 100
+                    elapsed = now - _t0
+                    avg = done / elapsed if elapsed > 0 else 0
+                    rem = (total - done) / avg if avg > 0 else 0
+                    pct_text = f"{pct:.1f}%   -   {done/1048576:.1f} MB / {total/1048576:.1f} MB"
+                    eta_text = (f"Time remaining: {rem:.0f} sec" if rem < 60
+                                else f"Time remaining: {rem/60:.1f} min") if rem > 0 else ""
                 else:
-                    pct      = (progress_var.get() + 1) % 100
+                    pct = (progress_var.get() + 1) % 100
                     pct_text = f"Downloaded: {done//1024} KB"
                     eta_text = ""
-
-                # Schedule UI updates on main thread (thread-safe)
-                def _update_ui():
-                    try:
-                        if not progress_win or not progress_win.winfo_exists():
-                            return
+                try:
+                    if progress_win.winfo_exists():
                         progress_var.set(pct)
                         progress_label.config(text=pct_text)
-                        if spd_str:
-                            speed_label.config(text=f"Speed: {spd_str}")
+                        speed_label.config(text=_speed["txt"])
                         eta_label.config(text=eta_text)
-                    except Exception:
-                        pass
-                try:
-                    progress_win.after(0, _update_ui)
                 except Exception:
                     pass
 
@@ -310,6 +305,7 @@ class AppUpdater:
             while dl_thread.is_alive():
                 try:
                     if progress_win:
+                        _refresh_progress_ui()
                         progress_win.update()
                 except Exception:
                     break
@@ -332,6 +328,17 @@ class AppUpdater:
                 return False
 
             # ── Validate & extract zip ───────────────────────────────── #
+            expected_sha = download_info.get("zip_sha256") if isinstance(download_info, dict) else None
+            if expected_sha and self._sha256_of_file(zip_path) != expected_sha:
+                messagebox.showerror(
+                    "Update Error",
+                    "The downloaded update failed its integrity check (SHA-256 mismatch).\n"
+                    "The update was cancelled; please try again later.",
+                )
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                _clear_pending_restore()
+                return False
+
             if not zipfile.is_zipfile(zip_path):
                 messagebox.showerror("Update Error", "Downloaded file is not a valid ZIP.")
                 shutil.rmtree(staging_dir, ignore_errors=True)
@@ -550,6 +557,24 @@ class AppUpdater:
             print(f"[Updater] EXE asset found but ignored (ZIP required): {best_name}")
 
         return zip_url, ver_url
+
+    @staticmethod
+    def _find_asset_digest(release_data, zip_url):
+        """Return the lowercase sha256 hex GitHub reports for the chosen ZIP asset (or None)."""
+        for asset in release_data.get("assets", []):
+            if asset.get("browser_download_url") == zip_url:
+                digest = str(asset.get("digest") or "")
+                if digest.lower().startswith("sha256:"):
+                    return digest.split(":", 1)[1].strip().lower()
+        return None
+
+    @staticmethod
+    def _sha256_of_file(path: str) -> str:
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(block)
+        return h.hexdigest()
 
     def _http_get(self, url, **kwargs):
         try:

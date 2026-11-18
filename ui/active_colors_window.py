@@ -2079,10 +2079,12 @@ class LottoManagerDialog:
             from reportlab.lib.pagesizes import A4
             from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
             from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib.styles import ParagraphStyle
             from reportlab.lib import colors as rl_colors
             from reportlab.lib.units import cm
             from datetime import datetime
             from app.utils import get_desktop_exports_dir
+            from xml.sax.saxutils import escape
 
             folder = get_desktop_exports_dir()
             ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2109,25 +2111,45 @@ class LottoManagerDialog:
                 return
 
             history_rows = self._build_color_change_rows(color_obj)
-            elems.append(Paragraph(f"<b>Color: {color_obj.code} - {color_obj.name}</b>", styles["Heading2"]))
+            elems.append(Paragraph(
+                f"<b>Color: {escape(str(color_obj.code))} - {escape(str(color_obj.name))}</b>",
+                styles["Heading2"],
+            ))
             elems.append(Spacer(1, 0.2*cm))
 
-            table_data = [["Code", "Name", "Type", "Lotto", "RESA %", "Updated At"]]
-            for row in history_rows:
-                table_data.append(list(row))
+            cell_style = ParagraphStyle(
+                "LottoReportCell", parent=styles["BodyText"],
+                fontName="Helvetica", fontSize=7, leading=8.5,
+                spaceBefore=0, spaceAfter=0,
+            )
+            header_style = ParagraphStyle(
+                "LottoReportHeader", parent=cell_style,
+                fontName="Helvetica-Bold", textColor=rl_colors.white,
+            )
 
-            t = Table(table_data, colWidths=[2*cm, 3.2*cm, 2*cm, 2.3*cm, 1.8*cm, 3*cm])
+            def report_cell(value, style):
+                text = "" if value is None else str(value)
+                text = text.replace("\u2014", "-").replace("\u2013", "-")
+                return Paragraph(escape(text), style)
+
+            headers = ["Code", "Name", "Supplier", "Type", "Lotto", "RESA %", "Updated At"]
+            table_data = [[report_cell(value, header_style) for value in headers]]
+            for row in history_rows:
+                table_data.append([report_cell(value, cell_style) for value in row])
+
+            t = Table(table_data, colWidths=[1.5*cm, 5.2*cm, 2.8*cm, 2.5*cm, 2.3*cm, 1.4*cm, 2.3*cm])
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0,0), (-1,0), rl_colors.HexColor("#1565C0")),
-                ("TEXTCOLOR",  (0,0), (-1,0), rl_colors.white),
-                ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
-                ("FONTSIZE",   (0,0), (-1,-1), 8),
                 ("ROWBACKGROUNDS", (0,1), (-1,-1),
                  [rl_colors.HexColor("#EEF2FF"), rl_colors.white]),
                 ("GRID", (0,0), (-1,-1), 0.5, rl_colors.grey),
                 ("ALIGN", (0,0), (-1,-1), "CENTER"),
-                ("ALIGN", (1,1), (1,-1), "LEFT"),
+                ("ALIGN", (1,1), (2,-1), "LEFT"),
+                ("VALIGN", (0,0), (-1,-1), "TOP"),
                 ("LEFTPADDING", (0,0), (-1,-1), 4),
+                ("RIGHTPADDING", (0,0), (-1,-1), 4),
+                ("TOPPADDING", (0,0), (-1,-1), 4),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 4),
             ]))
             elems.append(t)
             elems.append(Spacer(1, 0.4*cm))
