@@ -62,6 +62,8 @@ class RecipeCreatorWindow:
 
         # متغيرات
         self.selected_colors: List[Dict] = []
+        self._pending_history_operation = None
+        self._pending_history_details = None
         self._tree_sort_state = {}
         self.recipe_code_var = tk.StringVar()
         self.recipe_name_var = tk.StringVar()
@@ -330,6 +332,9 @@ class RecipeCreatorWindow:
 
         # زر الحذف
         ttk.Button(control_frame, text="Remove Selected", command=self.remove_selected_color, width=16, style='Sub.TButton').pack(pady=1)
+
+        # استبدال مستقل للون المحدد مع الحفاظ على النسبة الحالية
+        ttk.Button(control_frame, text="Replace Color", command=self.replace_selected_color, width=16, style='Sub.TButton').pack(pady=1)
 
         # نقل زر المسح الكامل إلى عمود التحكم أسفل Remove Selected
         ttk.Button(control_frame, text="Clear All Colors",
@@ -842,6 +847,48 @@ class RecipeCreatorWindow:
 
         self._refresh_recipe_calculations()
 
+    def replace_selected_color(self):
+        """Replace a recipe color while retaining its percentage."""
+        selected_recipe = self.selected_tree.selection()
+        if not selected_recipe:
+            messagebox.showwarning("Warning", "Select a color already added to the recipe.", parent=self.window)
+            return
+        active_tree = self.indanthren_tree if self.indanthren_tree.selection() else self.reattivi_tree if self.reattivi_tree.selection() else None
+        if not active_tree:
+            messagebox.showwarning("Warning", "Select the replacement color from the catalog.", parent=self.window)
+            return
+        old_values = self.selected_tree.item(selected_recipe[0], "values")
+        new_values = active_tree.item(active_tree.selection()[0], "values")
+        if not old_values or not new_values:
+            return
+        old_code = str(old_values[0]).strip().zfill(5)
+        new_code = str(new_values[0]).strip().zfill(5)
+        if old_code == new_code:
+            messagebox.showwarning("Warning", "Replacement color must be different.", parent=self.window)
+            return
+        if any(str(color.get("code", "")).strip().zfill(5) == new_code for color in self.selected_colors):
+            messagebox.showwarning("Duplicate Color", f"Color '{new_code}' is already in this recipe.", parent=self.window)
+            return
+        new_dye_type = str(new_values[2])
+        if self.selected_colors:
+            first_type = str(self.selected_colors[0].get("dye_type", ""))
+            if ("INDANTHREN" in new_dye_type.upper()) != ("INDANTHREN" in first_type.upper()):
+                messagebox.showerror("Incompatible Dye Types", "Cannot mix INDANTHREN and REATTIVI colors.", parent=self.window)
+                return
+        try:
+            price = float(str(new_values[4]).replace("€", "").strip() or 0)
+        except ValueError:
+            price = 0.0
+        for color in self.selected_colors:
+            if str(color.get("code", "")).strip().zfill(5) == old_code:
+                color.update({"code": new_code, "name": new_values[1], "dye_type": new_dye_type,
+                              "supplier": new_values[3], "price_kg": price,
+                              "resa_percent": self._find_color_resa_percent(new_code)})
+                break
+        self._pending_history_operation = "replace_color"
+        self._pending_history_details = {"old_color_code": old_code, "new_color_code": new_code}
+        self._refresh_recipe_calculations()
+
     def clear_all_colors(self):
         """مسح جميع الألوان"""
         if not self.selected_colors:
@@ -996,6 +1043,8 @@ class RecipeCreatorWindow:
                     self.selected_colors,
                     chemicals,
                     changed_by=username,
+                    operation=self._pending_history_operation or "edit_recipe",
+                    operation_details=self._pending_history_details,
                 )
                 if not ok:
                     messagebox.showerror("Error", message, parent=self.window)
@@ -1039,6 +1088,8 @@ class RecipeCreatorWindow:
                     self.selected_colors,
                     recipe_details.chemicals,
                     changed_by=username,
+                    operation=self._pending_history_operation or "edit_recipe",
+                    operation_details=self._pending_history_details,
                 )
                 if not ok:
                     messagebox.showerror("Error", message, parent=self.window)

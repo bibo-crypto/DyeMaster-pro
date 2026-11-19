@@ -2104,6 +2104,8 @@ class DatabaseManager:
         colors_data: List[Dict],
         chemicals: List = None,
         changed_by: str = None,
+        operation: str = "edit_recipe",
+        operation_details: Dict = None,
     ) -> Tuple[bool, str]:
         """Atomically replace recipe colors/chemicals and retain an old snapshot.
 
@@ -2186,6 +2188,8 @@ class DatabaseManager:
                 "colors": [{k: item[k] for k in ("code", "name", "dye_type", "percentage")} for item in resolved],
                 "chemicals": [dict(c) if isinstance(c, dict) else {"code": getattr(c, "code", ""), "name": getattr(c, "name", ""), "quantity": getattr(c, "quantity", 0), "unit": getattr(c, "unit", "")} for c in chemicals],
             }
+            if operation_details:
+                new_snapshot["operation_details"] = dict(operation_details)
             cursor.execute("SELECT COALESCE(MAX(version_no), 0) + 1 FROM recipe_versions WHERE recipe_id = ?", (recipe_id,))
             version_no = int(cursor.fetchone()[0])
             cursor.execute(
@@ -2208,7 +2212,7 @@ class DatabaseManager:
             cursor.execute(
                 """INSERT INTO recipe_change_history (recipe_id, version_id, operation, old_data, new_data, changed_by)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (recipe_id, version_id, "edit_recipe", json.dumps(old_snapshot, ensure_ascii=False), json.dumps(new_snapshot, ensure_ascii=False), changed_by),
+                (recipe_id, version_id, operation, json.dumps(old_snapshot, ensure_ascii=False), json.dumps(new_snapshot, ensure_ascii=False), changed_by),
             )
             conn.commit()
             self._invalidate_read_cache()
@@ -2220,6 +2224,61 @@ class DatabaseManager:
         finally:
             if conn:
                 conn.close()
+
+    def replace_recipe_color(
+        self,
+        recipe_id: int,
+        old_color_code: str,
+        new_color_code: str,
+        changed_by: str = None,
+    ) -> Tuple[bool, str]:
+        """Replace one registered recipe color while preserving its percentage.
+
+        Chemical quantities are recalculated through the existing calculator
+        rules for the resulting recipe. The operation is persisted as a
+        dedicated ``replace_color`` history event and never creates a recipe.
+        """
+        details = self.get_recipe_details(recipe_id)
+        if not details or not details.get("recipe"):
+            return False, f"Recipe with ID {recipe_id} not found."
+        old_code = str(old_color_code or "").strip().zfill(5)
+        new_code = str(new_color_code or "").strip().zfill(5)
+        if old_code == new_code:
+            return False, "Replacement color must be different from the current color."
+        colors = [dict(color) for color in details.get("colors", [])]
+        target = next((color for color in colors if str(color.get("code", "")).strip().zfill(5) == old_code), None)
+        if target is None:
+            return False, f"Color '{old_code}' is not used by this recipe."
+        if any(str(color.get("code", "")).strip().zfill(5) == new_code for color in colors):
+            return False, f"Color '{new_code}' is already used by this recipe."
+        replacement = self.get_color_by_code(new_code)
+        if not replacement:
+            return False, f"Unregistered color code: {new_code}"
+        target.update({
+            "code": replacement.code,
+            "name": replacement.name,
+            "dye_type": replacement.dye_type,
+            "price_kg": replacement.price_kg,
+            "resa_percent": replacement.resa_percent,
+        })
+        from app.calculator import ChemicalCalculator
+        total = sum(float(color.get("percentage", 0)) for color in colors)
+        type_totals = {}
+        for color in colors:
+            dye_type = color.get("dye_type", "")
+            type_totals[dye_type] = type_totals.get(dye_type, 0) + float(color.get("percentage", 0))
+        dominant_type = max(type_totals, key=type_totals.get) if type_totals else "GENERAL"
+        chemicals = ChemicalCalculator.calculate_chemicals(total, dominant_type)
+        return self.update_recipe_contents(
+            recipe_id,
+            details["recipe"].recipe_code,
+            details["recipe"].name,
+            colors,
+            chemicals,
+            changed_by=changed_by,
+            operation="replace_color",
+            operation_details={"old_color_code": old_code, "new_color_code": new_code},
+        )
 
     def get_recipe_history(self, recipe_id: int) -> List[Dict]:
         """Return immutable pre-edit snapshots and change metadata."""

@@ -130,3 +130,39 @@ def test_recipe_editor_rejects_duplicate_colors_without_mutating_original(databa
     assert not ok
     assert database.get_recipe_by_id(recipe_id).name == "Original"
     assert database.get_recipe_history(recipe_id) == []
+
+
+def test_replace_recipe_color_preserves_percentage_and_creates_no_new_recipe(database):
+    add_color(database, "12345", "Red A")
+    add_color(database, "54321", "Blue B")
+    recipe_id = database.add_recipe(
+        Recipe(recipe_code="123456", name="Replace me", created_at="2026-01-01 00:00:00"),
+        [{"code": "12345", "percentage": 2.5}],
+    )
+
+    ok, message = database.replace_recipe_color(recipe_id, "12345", "54321", changed_by="operator")
+    assert ok, message
+    assert len(database.get_all_recipes()) == 1
+    details = database.get_recipe_details(recipe_id)
+    assert details["colors"][0]["code"] == "54321"
+    assert details["colors"][0]["percentage"] == pytest.approx(2.5)
+    assert details["chemicals"]
+    history = database.get_recipe_history(recipe_id)
+    assert history[0]["operation"] == "replace_color"
+    assert history[0]["changed_by"] == "operator"
+    assert history[0]["new_data"]["operation_details"] == {
+        "old_color_code": "12345", "new_color_code": "54321"
+    }
+
+
+def test_replace_recipe_color_rejects_unregistered_color_without_history(database):
+    add_color(database, "12345", "Red A")
+    recipe_id = database.add_recipe(
+        Recipe(recipe_code="123456", name="Replace me", created_at="2026-01-01 00:00:00"),
+        [{"code": "12345", "percentage": 2.5}],
+    )
+    ok, message = database.replace_recipe_color(recipe_id, "12345", "00001")
+    assert not ok
+    assert "Unregistered color" in message
+    assert database.get_recipe_details(recipe_id)["colors"][0]["code"] == "12345"
+    assert database.get_recipe_history(recipe_id) == []

@@ -25,7 +25,7 @@ def _resolve_version_file_path() -> str:
         if os.path.exists(candidate):
             return candidate
 
-        # 1.1 onedir fallback: some layouts place app data under _internal
+        # 1.1 compatibility fallback for PyInstaller builds using _internal
         candidate = os.path.join(exe_dir, "_internal", "version.txt")
         if os.path.exists(candidate):
             return candidate
@@ -118,4 +118,3 @@ GUI_SETTINGS = {
 
 # Backwards-compat: older code expects this name.
 MAIN_WINDOW_SIZE = GUI_SETTINGS["window_size"]
-

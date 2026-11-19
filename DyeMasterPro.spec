@@ -64,6 +64,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
+    contents_directory='.',       # keep version.txt beside the EXE for CI/updater compatibility
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,

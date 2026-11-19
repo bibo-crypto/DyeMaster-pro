@@ -1,6 +1,6 @@
 #define ProjectRoot AddBackslash(SourcePath)
 #define MyAppName "DyeMaster Pro"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "DyeMaster Pro"
 #define MyAppExeName "DyeMasterPro.exe"
 #define MyDistDir ProjectRoot + "dist\\DyeMasterPro"

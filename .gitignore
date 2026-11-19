@@ -41,6 +41,11 @@ audit_report.md
 .coverage
 coverage.xml
 htmlcov/
+.pytest_cache/
+.pytest_tmp/
+pytest_tmp/
+*.db.before_restore
+*.db.restore_tmp
 
 # OS / Editor files
 .DS_Store
