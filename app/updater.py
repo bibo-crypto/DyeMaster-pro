@@ -345,8 +345,7 @@ class AppUpdater:
                 return False
 
             os.makedirs(extract_dir, exist_ok=True)
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(extract_dir)
+            self._safe_extract_zip(zip_path, extract_dir)
 
             # Find the new exe inside the extracted folder.
             # Supports two layouts:
@@ -472,6 +471,28 @@ class AppUpdater:
             return False
 
     # ── Internal helpers ──────────────────────────────────────────────── #
+
+    @staticmethod
+    def _safe_extract_zip(zip_path: str, destination: str) -> None:
+        """Extract a release ZIP without allowing files outside destination.
+
+        Release archives are external input.  In addition to rejecting absolute
+        and ``..`` paths, reject Unix symlink entries because a symlink can
+        otherwise escape the destination after extraction.
+        """
+        root = os.path.realpath(destination)
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            for member in archive.infolist():
+                name = member.filename.replace("\\", "/")
+                if not name or name.startswith("/") or re.match(r"^[A-Za-z]:/", name):
+                    raise ValueError(f"Unsafe ZIP member path: {member.filename!r}")
+                mode = (member.external_attr >> 16) & 0o170000
+                if mode == 0o120000:
+                    raise ValueError(f"Symlink ZIP member is not allowed: {member.filename!r}")
+                target = os.path.realpath(os.path.join(root, *name.split("/")))
+                if target != root and not target.startswith(root + os.sep):
+                    raise ValueError(f"Unsafe ZIP member path: {member.filename!r}")
+            archive.extractall(root)
 
     def _find_exe_in_dir(self, root: str, exe_name: str) -> str | None:
         """

@@ -21,9 +21,10 @@ from ui.theme_tokens import configure_sub_button_style, setup_tree_tags, zebra_i
 class RecipeCreatorWindow:
     """نافذة إنشاء وصفة جديدة"""
 
-    def __init__(self, parent, db: DatabaseManager, dark_mode: bool = False):
+    def __init__(self, parent, db: DatabaseManager, dark_mode: bool = False, recipe_id: int = None):
         self.parent = parent
         self.db = db
+        self.editing_recipe_id = recipe_id
         self.session = SessionManager.get_session()
         self.dark_mode = dark_mode
         self.indanthren_colors = []  # تخزين ألوان Indanthren
@@ -31,7 +32,7 @@ class RecipeCreatorWindow:
 
         self.window = tk.Toplevel(parent)
         show_on_top(self.window, parent)
-        self.window.title("Create New Recipe")
+        self.window.title("Edit Recipe" if recipe_id is not None else "Create New Recipe")
         
         # ضبط أبعاد النافذة لتكون متجاوبة مع حد أدنى معقول
         screen_width = self.window.winfo_screenwidth()
@@ -87,6 +88,21 @@ class RecipeCreatorWindow:
 
         # تحميل الألوان المتاحة
         self.load_available_colors()
+        if self.editing_recipe_id is not None:
+            self._load_existing_recipe(self.editing_recipe_id)
+
+    def _load_existing_recipe(self, recipe_id: int):
+        """Load an existing recipe into the validated editor controls."""
+        details = self.db.get_recipe_details(recipe_id)
+        if not details:
+            messagebox.showerror("Error", "The selected recipe could not be found.", parent=self.window)
+            self.window.destroy()
+            return
+        recipe = details["recipe"]
+        self.recipe_code_var.set(recipe.recipe_code)
+        self.recipe_name_var.set(recipe.name)
+        self.selected_colors = [dict(color) for color in details.get("colors", [])]
+        self._refresh_recipe_calculations()
 
     def _on_window_destroy(self, event=None):
         """Cleanup global bindings when this window is closed."""
@@ -166,7 +182,7 @@ class RecipeCreatorWindow:
         button_row = ttk.Frame(button_frame)
         button_row.pack(fill=tk.X, pady=4)
 
-        ttk.Button(button_row, text="💾  Save Recipe Only",
+        ttk.Button(button_row, text="💾  Save Changes" if self.editing_recipe_id is not None else "💾  Save Recipe Only",
                    command=self.save_recipe_only,
                    width=22, style='Sub.TButton').pack(side=tk.LEFT, padx=5)
 
@@ -955,13 +971,6 @@ class RecipeCreatorWindow:
             recipe_code = clean_recipe_code(self.recipe_code_var.get().strip())
             recipe_name = self.recipe_name_var.get().strip()
 
-            recipe = Recipe(
-                id=0,
-                recipe_code=recipe_code,
-                name=recipe_name,
-                created_at=get_current_timestamp()
-            )
-
             # حساب الكيماويات
             total_percentage = sum(c.get('percentage', 0) for c in self.selected_colors)
             type_totals = {}
@@ -972,10 +981,27 @@ class RecipeCreatorWindow:
             
             from app.calculator import ChemicalCalculator
             chemicals = ChemicalCalculator.calculate_chemicals(total_percentage, dominant_type)
-
-            recipe_id = self.db.add_recipe(recipe, self.selected_colors, chemicals)
-
-            messagebox.showinfo("Success", f"Recipe saved successfully!\nRecipe ID: {recipe_id}", parent=self.window)
+            if self.editing_recipe_id is not None:
+                if not self.session.has_permission("can_edit"):
+                    messagebox.showwarning("Permission Denied", "You do not have permission to edit recipes.", parent=self.window)
+                    return
+                username = getattr(self.session.current_user, "username", None)
+                ok, message = self.db.update_recipe_contents(
+                    self.editing_recipe_id,
+                    recipe_code,
+                    recipe_name,
+                    self.selected_colors,
+                    chemicals,
+                    changed_by=username,
+                )
+                if not ok:
+                    messagebox.showerror("Error", message, parent=self.window)
+                    return
+                messagebox.showinfo("Success", message, parent=self.window)
+            else:
+                recipe = Recipe(id=0, recipe_code=recipe_code, name=recipe_name, created_at=get_current_timestamp())
+                recipe_id = self.db.add_recipe(recipe, self.selected_colors, chemicals)
+                messagebox.showinfo("Success", f"Recipe saved successfully!\nRecipe ID: {recipe_id}", parent=self.window)
             self.window.destroy()
 
             if hasattr(self.parent, 'load_data'):

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  linux-tests:
+    name: Linux pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+      - name: Compile source
+        run: python -m compileall -q main.py app ui
+      - name: Run pytest with coverage
+        run: python -m pytest -q --cov=app --cov=ui --cov-report=term-missing --cov-report=xml:coverage.xml
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-coverage
+          path: coverage.xml
+
+  windows-tests-and-build:
+    name: Windows pytest and EXE build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip; python -m pip install -r requirements-dev.txt
+      - name: Compile source
+        run: python -m compileall -q main.py app ui
+      - name: Run pytest
+        run: python -m pytest -q
+      - name: Build onedir executable
+        run: pyinstaller --clean --noconfirm DyeMasterPro.spec
+      - name: Verify packaged files
+        shell: pwsh
+        run: |
+          $dist = Join-Path $PWD "dist\DyeMasterPro"
+          if (!(Test-Path $dist)) { throw "PyInstaller output directory was not created" }
+          if (!(Test-Path (Join-Path $dist "version.txt"))) { throw "version.txt missing from packaged output" }
+          $exe = Get-ChildItem $dist -Filter *.exe -File | Select-Object -First 1
+          if ($null -eq $exe) { throw "No executable found in packaged output" }
+          Write-Host "Packaged executable: $($exe.FullName)"
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dyemaster-build
+          path: dist/DyeMasterPro

@@ -38,6 +38,9 @@ USERS.txt
 
 # Reports generated locally
 audit_report.md
+.coverage
+coverage.xml
+htmlcov/
 
 # OS / Editor files
 .DS_Store

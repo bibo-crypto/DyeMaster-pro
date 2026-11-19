@@ -327,13 +327,7 @@ class RecipesWindow:
 
         try:
             from .recipe_creator_window import RecipeCreatorWindow
-            messagebox.showinfo(
-                "Edit Recipe",
-                "Direct edit mode is not available in this window.\n"
-                "A Recipe Creator window will open for creating/re-saving the recipe.",
-                parent=self.window
-            )
-            RecipeCreatorWindow(self.window, self.db)
+            RecipeCreatorWindow(self.window, self.db, recipe_id=recipe_id)
         except ImportError as e:
             messagebox.showerror("Error", f"Cannot open edit window. Make sure 'recipe_creator_window.py' exists and is correctly imported: {e}")
         except Exception as e:

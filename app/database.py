@@ -5,6 +5,7 @@ import sqlite3
 import os
 import stat
 import shutil
+import json
 import hashlib
 import hmac
 import re
@@ -1143,6 +1144,36 @@ class DatabaseManager:
                     FOREIGN KEY (color_id) REFERENCES colors(id)
                 )
             ''')
+            # Recipe snapshots preserve historical values when a recipe is
+            # edited; existing recipe and production data is not rewritten.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS recipe_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recipe_id INTEGER NOT NULL,
+                    version_no INTEGER NOT NULL,
+                    recipe_code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by TEXT,
+                    UNIQUE(recipe_id, version_no),
+                    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS recipe_change_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recipe_id INTEGER NOT NULL,
+                    version_id INTEGER,
+                    operation TEXT NOT NULL,
+                    old_data TEXT,
+                    new_data TEXT,
+                    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    changed_by TEXT,
+                    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (version_id) REFERENCES recipe_versions(id) ON DELETE SET NULL
+                )
+            ''')
             try:
                 cursor.execute("ALTER TABLE colors ADD COLUMN current_lotto TEXT DEFAULT ''")
             except sqlite3.OperationalError:
@@ -1186,7 +1217,9 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_recipe_colors_recipe ON recipe_colors(recipe_id)",
             "CREATE INDEX IF NOT EXISTS idx_recipe_colors_color ON recipe_colors(color_id)",
             "CREATE INDEX IF NOT EXISTS idx_recipe_chemicals_recipe ON recipe_chemicals(recipe_id)",
-            "CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id)"
+            "CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_recipe_versions_recipe ON recipe_versions(recipe_id, version_no)",
+            "CREATE INDEX IF NOT EXISTS idx_recipe_history_recipe ON recipe_change_history(recipe_id, changed_at)"
         ]
         
         for index_sql in indexes:
@@ -2059,6 +2092,153 @@ class DatabaseManager:
             if conn:
                 conn.rollback()
             return False, str(e)
+        finally:
+            if conn:
+                conn.close()
+
+    def update_recipe_contents(
+        self,
+        recipe_id: int,
+        new_code: str,
+        new_name: str,
+        colors_data: List[Dict],
+        chemicals: List = None,
+        changed_by: str = None,
+    ) -> Tuple[bool, str]:
+        """Atomically replace recipe colors/chemicals and retain an old snapshot.
+
+        This is intentionally separate from ``update_recipe`` so existing
+        callers that only rename or recode a recipe keep their behavior. The
+        method validates all referenced colors before deleting any child rows,
+        and a failure rolls back the entire edit.
+        """
+        conn = None
+        try:
+            from app.validators import Validators
+
+            new_code = clean_recipe_code((new_code or '').strip())
+            new_name = (new_name or '').strip()
+            valid_code, code_message = Validators.validate_recipe_code(new_code)
+            valid_name, name_message = Validators.validate_name(new_name, "Recipe name")
+            if not valid_code:
+                return False, code_message
+            if not valid_name:
+                return False, name_message
+            if not colors_data:
+                return False, "Recipe must contain at least one color"
+
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT recipe_code, name, created_at FROM recipes WHERE id = ?", (recipe_id,))
+            recipe_row = cursor.fetchone()
+            if not recipe_row:
+                return False, f"Recipe with ID {recipe_id} not found."
+            cursor.execute("SELECT id FROM recipes WHERE recipe_code = ? AND id != ?", (new_code, recipe_id))
+            if cursor.fetchone():
+                return False, f"Recipe code '{new_code}' already exists. Choose a different code."
+
+            old_colors = []
+            cursor.execute(
+                """SELECT c.code, c.name, c.dye_type, rc.percentage
+                   FROM recipe_colors rc JOIN colors c ON c.id = rc.color_id
+                   WHERE rc.recipe_id = ? ORDER BY rc.id""",
+                (recipe_id,),
+            )
+            for row in cursor.fetchall():
+                old_colors.append({"code": row[0], "name": row[1], "dye_type": row[2], "percentage": row[3]})
+            cursor.execute(
+                "SELECT code, name, quantity, unit FROM recipe_chemicals WHERE recipe_id = ? ORDER BY id",
+                (recipe_id,),
+            )
+            old_chemicals = [{"code": r[0], "name": r[1], "quantity": r[2], "unit": r[3]} for r in cursor.fetchall()]
+            if chemicals is None:
+                chemicals = old_chemicals
+
+            resolved = []
+            seen_codes = set()
+            for item in colors_data:
+                code = str(item.get("code", "")).strip()
+                valid, message, percentage = Validators.validate_percentage(
+                    item.get("percentage"), "Color percentage", min_value=0.01, max_value=100, allow_zero=False
+                )
+                if not code:
+                    return False, "Color code cannot be empty"
+                if not valid:
+                    return False, message
+                if code in seen_codes:
+                    return False, f"Color '{code}' is duplicated in the recipe"
+                seen_codes.add(code)
+                cursor.execute("SELECT id, name, dye_type FROM colors WHERE code = ?", (code,))
+                color_row = cursor.fetchone()
+                if not color_row:
+                    return False, f"Unregistered color code: {code}"
+                resolved.append({"color_id": color_row[0], "code": code, "name": color_row[1], "dye_type": color_row[2], "percentage": percentage})
+            total_percentage = sum(item["percentage"] for item in resolved)
+            if total_percentage > 100:
+                return False, f"Total percentage ({total_percentage:.2f}%) cannot exceed 100%"
+
+            old_snapshot = {
+                "recipe_code": recipe_row[0], "name": recipe_row[1], "created_at": recipe_row[2],
+                "colors": old_colors, "chemicals": old_chemicals,
+            }
+            new_snapshot = {
+                "recipe_code": new_code, "name": new_name, "created_at": recipe_row[2],
+                "colors": [{k: item[k] for k in ("code", "name", "dye_type", "percentage")} for item in resolved],
+                "chemicals": [dict(c) if isinstance(c, dict) else {"code": getattr(c, "code", ""), "name": getattr(c, "name", ""), "quantity": getattr(c, "quantity", 0), "unit": getattr(c, "unit", "")} for c in chemicals],
+            }
+            cursor.execute("SELECT COALESCE(MAX(version_no), 0) + 1 FROM recipe_versions WHERE recipe_id = ?", (recipe_id,))
+            version_no = int(cursor.fetchone()[0])
+            cursor.execute(
+                """INSERT INTO recipe_versions (recipe_id, version_no, recipe_code, name, snapshot_json, created_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (recipe_id, version_no, recipe_row[0], recipe_row[1], json.dumps(old_snapshot, ensure_ascii=False), changed_by),
+            )
+            version_id = cursor.lastrowid
+            cursor.execute("DELETE FROM recipe_chemicals WHERE recipe_id = ?", (recipe_id,))
+            cursor.execute("DELETE FROM recipe_colors WHERE recipe_id = ?", (recipe_id,))
+            cursor.execute(
+                "UPDATE recipes SET recipe_code = ?, name = ?, colors_count = ?, total_percentage = ? WHERE id = ?",
+                (new_code, new_name, len(resolved), total_percentage, recipe_id),
+            )
+            for item in resolved:
+                cursor.execute("INSERT INTO recipe_colors (recipe_id, color_id, percentage) VALUES (?, ?, ?)", (recipe_id, item["color_id"], item["percentage"]))
+            for chemical in chemicals:
+                data = chemical if isinstance(chemical, dict) else chemical.__dict__
+                cursor.execute("INSERT INTO recipe_chemicals (recipe_id, code, name, quantity, unit) VALUES (?, ?, ?, ?, ?)", (recipe_id, data.get("code", ""), data.get("name", ""), data.get("quantity", 0), data.get("unit", "")))
+            cursor.execute(
+                """INSERT INTO recipe_change_history (recipe_id, version_id, operation, old_data, new_data, changed_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (recipe_id, version_id, "edit_recipe", json.dumps(old_snapshot, ensure_ascii=False), json.dumps(new_snapshot, ensure_ascii=False), changed_by),
+            )
+            conn.commit()
+            self._invalidate_read_cache()
+            return True, f"Recipe updated successfully (version {version_no})."
+        except Exception as exc:
+            if conn:
+                conn.rollback()
+            return False, str(exc)
+        finally:
+            if conn:
+                conn.close()
+
+    def get_recipe_history(self, recipe_id: int) -> List[Dict]:
+        """Return immutable pre-edit snapshots and change metadata."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """SELECT h.id, h.operation, h.old_data, h.new_data, h.changed_at, h.changed_by,
+                          v.version_no
+                   FROM recipe_change_history h LEFT JOIN recipe_versions v ON v.id = h.version_id
+                   WHERE h.recipe_id = ? ORDER BY h.id DESC""",
+                (recipe_id,),
+            ).fetchall()
+            return [
+                {"id": r[0], "operation": r[1], "old_data": json.loads(r[2]) if r[2] else None,
+                 "new_data": json.loads(r[3]) if r[3] else None, "changed_at": r[4],
+                 "changed_by": r[5], "version_no": r[6]}
+                for r in rows
+            ]
         finally:
             if conn:
                 conn.close()
