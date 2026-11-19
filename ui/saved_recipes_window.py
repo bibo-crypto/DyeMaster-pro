@@ -598,13 +598,7 @@ class SavedRecipesWindow:
 
 
     def edit_recipe(self):
-        """Open a dialog to rename/recode the selected recipe.
-
-        Rules enforced here (and in DatabaseManager.update_recipe):
-        - Code must be digits only (0-9).
-        - Code max 6 digits; zero-padded on the left to 6 (e.g. 66 -> 000066).
-        - Code must be unique across all recipes.
-        """
+        """فتح محرر الوصفة الكامل للريشتة المحددة."""
         if not self.session.has_permission("can_edit"):
             messagebox.showwarning("Permission Denied", "You do not have permission to edit recipes.", parent=self.window)
             return
@@ -616,95 +610,29 @@ class SavedRecipesWindow:
 
         values = self.recipe_tree.item(selected[0], "values")
         recipe_id = int(values[0])
-        current_code = values[1]
-        current_name = values[2]
 
-        dialog = tk.Toplevel(self.window)
-        dialog.title("Edit Recipe")
-        dialog.resizable(False, False)
-        dialog.configure(bg=get_theme_tokens(self.dark_mode)["bg"])
-        show_on_top(dialog, self.window)
+        try:
+            from ui.recipe_creator_window import RecipeCreatorWindow
 
-        # Centre the dialog over the parent window
-        dialog.update_idletasks()
-        dw, dh = 420, 210
-        px = self.window.winfo_rootx() + (self.window.winfo_width() - dw) // 2
-        py = self.window.winfo_rooty() + (self.window.winfo_height() - dh) // 2
-        dialog.geometry(f"{dw}x{dh}+{px}+{py}")
-
-        pad = {"padx": 12, "pady": 7}
-
-        # ── Code entry (digits only, max 6 chars) ──
-        ttk.Label(dialog, text="Recipe Code (digits, max 6):", font=('Arial', 9, 'bold')).grid(
-            row=0, column=0, sticky="e", **pad)
-
-        code_var = tk.StringVar(value=current_code.lstrip('0') or '0')
-        preview_var = tk.StringVar()
-
-        def _update_preview(*_):
-            raw = code_var.get()
-            if raw.isdigit() and 1 <= len(raw) <= 6:
-                preview_var.set(f"Will be saved as: {raw.zfill(6)}")
-            elif not raw:
-                preview_var.set("Will be saved as: ------")
-            elif not raw.isdigit():
-                preview_var.set("Digits only (0-9) allowed!")
-            else:
-                preview_var.set(f"Max 6 digits allowed! (entered {len(raw)})")
-
-        # Validate: only digits, max 6 characters
-        def _validate(P):
-            return P == "" or (P.isdigit() and len(P) <= 6)
-
-        vcmd = (dialog.register(_validate), '%P')
-        code_entry = ttk.Entry(dialog, textvariable=code_var, width=20,
-                               validate='key', validatecommand=vcmd)
-        code_entry.grid(row=0, column=1, sticky="w", **pad)
-        code_entry.focus_set()
-        code_var.trace_add('write', _update_preview)
-        _update_preview()
-
-        # Live preview label
-        preview_label = ttk.Label(dialog, textvariable=preview_var,
-                                  font=('Arial', 8, 'italic'), foreground='#555555')
-        preview_label.grid(row=1, column=0, columnspan=2, sticky="w", padx=12, pady=0)
-
-        # ── Name entry ──
-        ttk.Label(dialog, text="Recipe Name:", font=('Arial', 9, 'bold')).grid(
-            row=2, column=0, sticky="e", **pad)
-        name_var = tk.StringVar(value=current_name)
-        name_entry = ttk.Entry(dialog, textvariable=name_var, width=28)
-        name_entry.grid(row=2, column=1, sticky="w", **pad)
-
-        # ── Save callback ──
-        def do_save():
-            new_code = code_var.get().strip()
-            new_name = name_var.get().strip()
-            if not new_code or not new_name:
-                messagebox.showwarning("Validation", "Both code and name are required.", parent=dialog)
-                return
-            ok, msg = self.db.update_recipe(recipe_id, new_code, new_name)
-            if ok:
+            def refresh_after_save(saved_recipe_id):
                 self.data_changed = True
                 self.load_recipes()
+                self.select_recipe_by_id(saved_recipe_id)
                 self._notify_data_changed()
-                if hasattr(self, 'current_recipe_data') and self.current_recipe_data and \
-                        self.current_recipe_data.get('id') == recipe_id:
-                    self.show_recipe_details(recipe_id)
-                dialog.destroy()
-                messagebox.showinfo("Success", msg, parent=self.window)
-            else:
-                messagebox.showerror("Error", msg, parent=dialog)
 
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=12)
-        ttk.Button(btn_frame, text="Save", command=do_save,
-                   width=12, style='Sub.TButton').pack(side=tk.LEFT, padx=8)
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy,
-                   width=12, style='Sub.TButton').pack(side=tk.LEFT, padx=8)
-
-        dialog.bind("<Return>", lambda e: do_save())
-        dialog.bind("<Escape>", lambda e: dialog.destroy())
+            RecipeCreatorWindow(
+                self.window,
+                self.db,
+                dark_mode=self.dark_mode,
+                recipe_id=recipe_id,
+                on_saved=refresh_after_save,
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Cannot open the recipe editor: {str(e)}",
+                parent=self.window,
+            )
 
 
     def delete_recipe(self):

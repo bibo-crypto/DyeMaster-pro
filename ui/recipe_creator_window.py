@@ -21,10 +21,12 @@ from ui.theme_tokens import configure_sub_button_style, setup_tree_tags, zebra_i
 class RecipeCreatorWindow:
     """نافذة إنشاء وصفة جديدة"""
 
-    def __init__(self, parent, db: DatabaseManager, dark_mode: bool = False, recipe_id: int = None):
+    def __init__(self, parent, db: DatabaseManager, dark_mode: bool = False, recipe_id: int = None, on_saved=None):
         self.parent = parent
         self.db = db
         self.editing_recipe_id = recipe_id
+        self.on_saved = on_saved
+        self.editing_recipe_created_at = None
         self.session = SessionManager.get_session()
         self.dark_mode = dark_mode
         self.indanthren_colors = []  # تخزين ألوان Indanthren
@@ -99,6 +101,7 @@ class RecipeCreatorWindow:
             self.window.destroy()
             return
         recipe = details["recipe"]
+        self.editing_recipe_created_at = recipe.created_at
         self.recipe_code_var.set(recipe.recipe_code)
         self.recipe_name_var.set(recipe.name)
         self.selected_colors = [dict(color) for color in details.get("colors", [])]
@@ -1002,6 +1005,8 @@ class RecipeCreatorWindow:
                 recipe = Recipe(id=0, recipe_code=recipe_code, name=recipe_name, created_at=get_current_timestamp())
                 recipe_id = self.db.add_recipe(recipe, self.selected_colors, chemicals)
                 messagebox.showinfo("Success", f"Recipe saved successfully!\nRecipe ID: {recipe_id}", parent=self.window)
+            if callable(self.on_saved):
+                self.on_saved(self.editing_recipe_id if self.editing_recipe_id is not None else recipe_id)
             self.window.destroy()
 
             if hasattr(self.parent, 'load_data'):
@@ -1019,18 +1024,41 @@ class RecipeCreatorWindow:
             recipe_code = clean_recipe_code(self.recipe_code_var.get().strip())
             recipe_name = self.recipe_name_var.get().strip()
 
-            recipe = Recipe(
-                id=0,
-                recipe_code=recipe_code,
-                name=recipe_name,
-                created_at=get_current_timestamp()
-            )
-
             from app.calculator import ChemicalCalculator
             recipe_details = ChemicalCalculator.calculate_recipe_details(recipe_name, self.selected_colors)
-            
-            # حفظ الكيماويات مع الوصفة
-            recipe_id = self.db.add_recipe(recipe, self.selected_colors, recipe_details.chemicals)
+
+            if self.editing_recipe_id is not None:
+                if not self.session.has_permission("can_edit"):
+                    messagebox.showwarning("Permission Denied", "You do not have permission to edit recipes.", parent=self.window)
+                    return
+                username = getattr(self.session.current_user, "username", None)
+                ok, message = self.db.update_recipe_contents(
+                    self.editing_recipe_id,
+                    recipe_code,
+                    recipe_name,
+                    self.selected_colors,
+                    recipe_details.chemicals,
+                    changed_by=username,
+                )
+                if not ok:
+                    messagebox.showerror("Error", message, parent=self.window)
+                    return
+                recipe_id = self.editing_recipe_id
+                recipe = Recipe(
+                    id=recipe_id,
+                    recipe_code=recipe_code,
+                    name=recipe_name,
+                    created_at=self.editing_recipe_created_at or get_current_timestamp(),
+                )
+            else:
+                recipe = Recipe(
+                    id=0,
+                    recipe_code=recipe_code,
+                    name=recipe_name,
+                    created_at=get_current_timestamp()
+                )
+                recipe_id = self.db.add_recipe(recipe, self.selected_colors, recipe_details.chemicals)
+
             recipe.id = recipe_id
             recipe_details.recipe = recipe
             recipe_details.lab_params = self._get_lab_params()
@@ -1046,6 +1074,8 @@ class RecipeCreatorWindow:
             else:
                 messagebox.showinfo("Success", f"Recipe saved successfully! (ID: {recipe_id})", parent=self.window)
 
+            if callable(self.on_saved):
+                self.on_saved(recipe_id)
             self.window.destroy()
 
             if hasattr(self.parent, 'load_data'):

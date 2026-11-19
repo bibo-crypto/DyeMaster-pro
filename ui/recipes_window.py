@@ -191,8 +191,11 @@ class RecipesWindow:
 
         ttk.Button(control_frame, text="View Details",
                    command=self.view_selected_recipe, width=15).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Edit Recipe",
-                   command=self.edit_recipe, width=15).pack(side=tk.LEFT, padx=5)
+        self.edit_recipe_button = ttk.Button(control_frame, text="Edit Recipe",
+                                             command=self.edit_recipe, width=15)
+        self.edit_recipe_button.pack(side=tk.LEFT, padx=5)
+        if not self.session.has_permission("can_edit"):
+            self.edit_recipe_button.state(["disabled"])
 
         self.delete_recipe_button = ttk.Button(control_frame, text="Delete Recipe",
                                                command=self.delete_recipe, width=15)
@@ -327,7 +330,18 @@ class RecipesWindow:
 
         try:
             from .recipe_creator_window import RecipeCreatorWindow
-            RecipeCreatorWindow(self.window, self.db, recipe_id=recipe_id)
+            def refresh_after_save(saved_recipe_id):
+                self.refresh_data()
+                if hasattr(self, 'show_recipe_details_by_id'):
+                    self.show_recipe_details_by_id(saved_recipe_id)
+
+            RecipeCreatorWindow(
+                self.window,
+                self.db,
+                dark_mode=self.dark_mode,
+                recipe_id=recipe_id,
+                on_saved=refresh_after_save,
+            )
         except ImportError as e:
             messagebox.showerror("Error", f"Cannot open edit window. Make sure 'recipe_creator_window.py' exists and is correctly imported: {e}")
         except Exception as e:
