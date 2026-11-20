@@ -12,6 +12,7 @@ from app.utils import clean_recipe_code, validate_recipe_code_input, get_current
 from app.models import Recipe
 from app.config import DYE_TYPES
 from app.lab_settings import load_lab_settings, save_lab_settings
+from app.recipe_rules import validate_color_compatibility
 from ui.theme_tokens import configure_sub_button_style, setup_tree_tags, zebra_insert, get_theme_tokens, apply_excel_treeview_style, show_on_top
 
 
@@ -64,6 +65,7 @@ class RecipeCreatorWindow:
         self.selected_colors: List[Dict] = []
         self._pending_history_operation = None
         self._pending_history_details = None
+        self._pending_history_events = []
         self._tree_sort_state = {}
         self.recipe_code_var = tk.StringVar()
         self.recipe_name_var = tk.StringVar()
@@ -759,42 +761,12 @@ class RecipeCreatorWindow:
 
         new_dye_type = color_data[2]
         
-        # فحص إذا كانت هناك ألوان مضافة بالفعل
-        if self.selected_colors:
-            # الحصول على نوع الصباغة الأول المضاف
-            first_dye_type = self.selected_colors[0]["dye_type"]
-            
-            # التحقق من عدم خلط Indanthren مع Reattivi
-            is_new_indanthren = "INDANTHREN" in new_dye_type.upper()
-            is_first_indanthren = "INDANTHREN" in first_dye_type.upper()
-            
-            if is_new_indanthren != is_first_indanthren:
-                messagebox.showerror(
-                    "Incompatible Dye Types",
-                    "Cannot mix INDANTHREN colors with REATTIVI colors in the same recipe.\n\n"
-                    f"Current recipe uses: {first_dye_type}\n"
-                    f"Trying to add: {new_dye_type}\n\n"
-                    "Please create a separate recipe for different dye types.",
-                    parent=self.window
-                )
-                return
-
-            # التحقق من عدم خلط Reattivi Caldi مع Freddi
-            is_new_caldi = "CALDI" in new_dye_type.upper()
-            is_new_freddi = "FREDDI" in new_dye_type.upper()
-            is_first_caldi = "CALDI" in first_dye_type.upper()
-            is_first_freddi = "FREDDI" in first_dye_type.upper()
-
-            if (is_new_caldi and is_first_freddi) or (is_new_freddi and is_first_caldi):
-                messagebox.showerror(
-                    "Incompatible Reactive Process",
-                    "Cannot mix REATTIVI CALDI with REATTIVI FREDDI in the same recipe.\n\n"
-                    f"Current recipe uses: {first_dye_type}\n"
-                    f"Trying to add: {new_dye_type}\n\n"
-                    "Please create a separate recipe for different processes.",
-                    parent=self.window
-                )
-                return
+        valid, compatibility_message = validate_color_compatibility(
+            self.selected_colors + [{"dye_type": new_dye_type}]
+        )
+        if not valid:
+            messagebox.showerror("Incompatible Dye Types", compatibility_message, parent=self.window)
+            return
         
         price_text = color_data[4].replace('€', '').strip()
         try:
@@ -809,6 +781,11 @@ class RecipeCreatorWindow:
             "price_kg": price,
             "percentage": percentage,
             "resa_percent": self._find_color_resa_percent(new_color_code)
+        })
+
+        getattr(self, "_pending_history_events", []).append({
+            "operation": "add_color",
+            "details": {"new_color_code": new_color_code, "new_percentage": float(percentage)},
         })
 
         self._refresh_recipe_calculations()
@@ -843,6 +820,10 @@ class RecipeCreatorWindow:
         for i, color in enumerate(self.selected_colors):
             if color["code"] == color_code:
                 self.selected_colors.pop(i)
+                getattr(self, "_pending_history_events", []).append({
+                    "operation": "delete_color",
+                    "details": {"old_color_code": color_code, "old_percentage": color.get("percentage")},
+                })
                 break
 
         self._refresh_recipe_calculations()
@@ -870,11 +851,12 @@ class RecipeCreatorWindow:
             messagebox.showwarning("Duplicate Color", f"Color '{new_code}' is already in this recipe.", parent=self.window)
             return
         new_dye_type = str(new_values[2])
-        if self.selected_colors:
-            first_type = str(self.selected_colors[0].get("dye_type", ""))
-            if ("INDANTHREN" in new_dye_type.upper()) != ("INDANTHREN" in first_type.upper()):
-                messagebox.showerror("Incompatible Dye Types", "Cannot mix INDANTHREN and REATTIVI colors.", parent=self.window)
-                return
+        valid, compatibility_message = validate_color_compatibility(
+            self.selected_colors + [{"dye_type": new_dye_type}]
+        )
+        if not valid:
+            messagebox.showerror("Incompatible Dye Types", compatibility_message, parent=self.window)
+            return
         try:
             price = float(str(new_values[4]).replace("€", "").strip() or 0)
         except ValueError:
@@ -887,6 +869,10 @@ class RecipeCreatorWindow:
                 break
         self._pending_history_operation = "replace_color"
         self._pending_history_details = {"old_color_code": old_code, "new_color_code": new_code}
+        getattr(self, "_pending_history_events", []).append({
+            "operation": "replace_color",
+            "details": dict(self._pending_history_details),
+        })
         self._refresh_recipe_calculations()
 
     def clear_all_colors(self):
@@ -1045,6 +1031,7 @@ class RecipeCreatorWindow:
                     changed_by=username,
                     operation=self._pending_history_operation or "edit_recipe",
                     operation_details=self._pending_history_details,
+                    history_events=getattr(self, "_pending_history_events", None) or None,
                 )
                 if not ok:
                     messagebox.showerror("Error", message, parent=self.window)
@@ -1090,6 +1077,7 @@ class RecipeCreatorWindow:
                     changed_by=username,
                     operation=self._pending_history_operation or "edit_recipe",
                     operation_details=self._pending_history_details,
+                    history_events=getattr(self, "_pending_history_events", None) or None,
                 )
                 if not ok:
                     messagebox.showerror("Error", message, parent=self.window)
