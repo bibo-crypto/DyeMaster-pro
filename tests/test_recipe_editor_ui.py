@@ -17,6 +17,8 @@ class FakeTree:
         return ["selected"] if self.values is not None else []
 
     def item(self, _item, _option=None):
+        if _option == "values":
+            return self.values
         return {"values": self.values}
 
 
