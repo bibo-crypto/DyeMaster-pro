@@ -2,6 +2,9 @@
 
 Base: `3cefd3a889491a828729e22fd968180a14d141c8`
 
+Final merged commit: [`9bbf707fe46f11f9105943a2c09c71fbaa8e89e5`](https://github.com/bibo-crypto/DyeMaster-pro/commit/9bbf707fe46f11f9105943a2c09c71fbaa8e89e5)
+Pull request: [#1](https://github.com/bibo-crypto/DyeMaster-pro/pull/1)
+
 ## Implemented
 
 - Added centralized recipe compatibility rules in `app/recipe_rules.py`, using the existing rules only:
@@ -20,11 +23,31 @@ Base: `3cefd3a889491a828729e22fd968180a14d141c8`
 ```text
 30 passed, 0 skipped
 Coverage: 14% total
+python3 -m compileall -q main.py app ui tests: passed
+git diff --check: passed
 ```
 
 The suite was run with SQLite temporary databases and Tkinter available. No chemistry formulas or existing calculator rules were changed.
 
-## Not yet verified
+## GitHub Actions verification
 
-- Windows GitHub Actions and Windows artifact have not yet been run for this new engineering-round commit; they will be required before this round is considered complete.
-- GUI interaction on a real Windows desktop and launching the packaged EXE were not performed in this Linux sandbox. The CI job can verify the build and tests, but it does not launch the graphical EXE.
+Main-branch CI run: [44847244248](https://github.com/bibo-crypto/DyeMaster-pro/actions/runs/44847244248)
+
+- Linux pytest: passed.
+- Windows pytest: passed.
+- PyInstaller on Windows: passed.
+- Verify packaged files: passed.
+- Windows artifact upload: passed.
+
+Downloaded artifact `windows-dyemaster-build` was inspected successfully:
+
+- `DyeMasterPro.exe` present.
+- `version.txt` present beside the executable and contains `1.0.4`.
+
+The run emitted only a GitHub Actions Node.js 20 deprecation annotation for existing action versions; it did not fail any job.
+
+## Explicit limitation
+
+The packaged graphical EXE was not launched interactively in this Linux sandbox. CI built and inspected the Windows package and ran the Windows test/build workflow, but this is not a claim of manual EXE launch verification.
+
+No GitHub Release was created or modified.
