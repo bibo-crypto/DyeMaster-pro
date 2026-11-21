@@ -40,3 +40,24 @@ def test_cost_calculation_is_deterministic():
     assert CostCalculator.calculate_recipe_cost(colors) == pytest.approx(0.8)
     assert CostCalculator.calculate_batch_cost(0.8, 50) == pytest.approx(40.0)
     assert CostCalculator.calculate_with_waste(100.0, 10) == pytest.approx(110.0)
+
+
+
+def test_central_recipe_rules_reject_indanthren_and_reattivi_mix():
+    from app.recipe_rules import validate_recipe_colors
+    valid, message = validate_recipe_colors([
+        {"code": "12345", "dye_type": "Indanthren IN", "percentage": 1.0},
+        {"code": "54321", "dye_type": "Reattivi Caldi", "percentage": 1.0},
+    ])
+    assert not valid
+    assert "INDANTHREN" in message
+
+
+def test_central_recipe_rules_reject_caldi_and_freddi_mix():
+    from app.recipe_rules import validate_recipe_colors
+    valid, message = validate_recipe_colors([
+        {"code": "12345", "dye_type": "Reattivi Caldi", "percentage": 1.0},
+        {"code": "54321", "dye_type": "Reattivi Freddi", "percentage": 1.0},
+    ])
+    assert not valid
+    assert "CALDI" in message and "FREDDI" in message

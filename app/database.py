@@ -20,6 +20,8 @@ from app.config import DATABASE_FILE, BACKUP_DIR, USER_DATA_DIR
 from app.models import Color, Recipe, Chemical, User
 from app.cache import cache_manager
 
+CURRENT_SCHEMA_VERSION = 2
+
 
 class ColorManager:
     """مدير الألوان - واجهة عالية المستوى لإدارة الألوان"""
@@ -1005,10 +1007,19 @@ class DatabaseManager:
             
             conn = self.get_connection()
             cursor = conn.cursor()
+            conn.execute("BEGIN")
 
             # Force a tiny write probe so read-only DBs are detected early.
             cursor.execute("CREATE TABLE IF NOT EXISTS __dm_write_probe__ (id INTEGER)")
             cursor.execute("DROP TABLE IF EXISTS __dm_write_probe__")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    description TEXT NOT NULL
+                )
+            """)
 
             # إنشاء جدول الألوان
             cursor.execute('''
@@ -1174,6 +1185,20 @@ class DatabaseManager:
                     FOREIGN KEY (version_id) REFERENCES recipe_versions(id) ON DELETE SET NULL
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS production_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recipe_id INTEGER NOT NULL,
+                    recipe_version_id INTEGER,
+                    recipe_code TEXT NOT NULL,
+                    recipe_name TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by TEXT,
+                    FOREIGN KEY (recipe_id) REFERENCES recipes(id),
+                    FOREIGN KEY (recipe_version_id) REFERENCES recipe_versions(id) ON DELETE SET NULL
+                )
+            ''')
             try:
                 cursor.execute("ALTER TABLE colors ADD COLUMN current_lotto TEXT DEFAULT ''")
             except sqlite3.OperationalError:
@@ -1186,6 +1211,15 @@ class DatabaseManager:
 
             # إضافة الفهارس لتحسين الأداء
             self._create_indexes(cursor)
+
+            cursor.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, description) VALUES (?, ?)",
+                (1, "Initial DyeMaster schema"),
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, description) VALUES (?, ?)",
+                (2, "Recipe snapshots, change history, and production records"),
+            )
             
             # إنشاء المستخدمين الافتراضيين (مرة واحدة)
             conn.commit()
@@ -1219,7 +1253,8 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_recipe_chemicals_recipe ON recipe_chemicals(recipe_id)",
             "CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_recipe_versions_recipe ON recipe_versions(recipe_id, version_no)",
-            "CREATE INDEX IF NOT EXISTS idx_recipe_history_recipe ON recipe_change_history(recipe_id, changed_at)"
+            "CREATE INDEX IF NOT EXISTS idx_recipe_history_recipe ON recipe_change_history(recipe_id, changed_at)",
+            "CREATE INDEX IF NOT EXISTS idx_production_records_recipe ON production_records(recipe_id, created_at)"
         ]
         
         for index_sql in indexes:
@@ -1678,7 +1713,7 @@ class DatabaseManager:
                     missing_codes.append("<empty>")
                     continue
 
-                cursor.execute('SELECT id FROM colors WHERE code = ?', (code,))
+                cursor.execute('SELECT id, dye_type FROM colors WHERE code = ?', (code,))
                 color_row = cursor.fetchone()
                 if not color_row:
                     missing_codes.append(code)
@@ -1686,6 +1721,8 @@ class DatabaseManager:
 
                 resolved_colors.append({
                     'color_id': color_row[0],
+                    'code': code,
+                    'dye_type': color_row[1],
                     'percentage': float(color_data.get('percentage', 0))
                 })
 
@@ -1698,6 +1735,11 @@ class DatabaseManager:
 
             if not resolved_colors:
                 raise Exception("Recipe must contain at least one valid color")
+
+            from app.recipe_rules import validate_recipe_colors
+            valid, validation_message = validate_recipe_colors(resolved_colors)
+            if not valid:
+                raise Exception(validation_message)
 
             total_percentage = sum(item['percentage'] for item in resolved_colors)
 
@@ -2106,6 +2148,7 @@ class DatabaseManager:
         changed_by: str = None,
         operation: str = "edit_recipe",
         operation_details: Dict = None,
+        history_events: List[Dict] = None,
     ) -> Tuple[bool, str]:
         """Atomically replace recipe colors/chemicals and retain an old snapshot.
 
@@ -2175,9 +2218,11 @@ class DatabaseManager:
                 if not color_row:
                     return False, f"Unregistered color code: {code}"
                 resolved.append({"color_id": color_row[0], "code": code, "name": color_row[1], "dye_type": color_row[2], "percentage": percentage})
+            from app.recipe_rules import validate_recipe_colors
+            valid, validation_message = validate_recipe_colors(resolved)
+            if not valid:
+                return False, validation_message
             total_percentage = sum(item["percentage"] for item in resolved)
-            if total_percentage > 100:
-                return False, f"Total percentage ({total_percentage:.2f}%) cannot exceed 100%"
 
             old_snapshot = {
                 "recipe_code": recipe_row[0], "name": recipe_row[1], "created_at": recipe_row[2],
@@ -2190,14 +2235,27 @@ class DatabaseManager:
             }
             if operation_details:
                 new_snapshot["operation_details"] = dict(operation_details)
-            cursor.execute("SELECT COALESCE(MAX(version_no), 0) + 1 FROM recipe_versions WHERE recipe_id = ?", (recipe_id,))
-            version_no = int(cursor.fetchone()[0])
-            cursor.execute(
-                """INSERT INTO recipe_versions (recipe_id, version_no, recipe_code, name, snapshot_json, created_by)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (recipe_id, version_no, recipe_row[0], recipe_row[1], json.dumps(old_snapshot, ensure_ascii=False), changed_by),
-            )
-            version_id = cursor.lastrowid
+            events = list(history_events or [{"operation": operation, "details": operation_details}])
+            version_no = 0
+            version_id = None
+            for event in events:
+                cursor.execute("SELECT COALESCE(MAX(version_no), 0) + 1 FROM recipe_versions WHERE recipe_id = ?", (recipe_id,))
+                version_no = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """INSERT INTO recipe_versions (recipe_id, version_no, recipe_code, name, snapshot_json, created_by)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (recipe_id, version_no, recipe_row[0], recipe_row[1], json.dumps(old_snapshot, ensure_ascii=False), changed_by),
+                )
+                version_id = cursor.lastrowid
+                event_new_snapshot = dict(new_snapshot)
+                if event.get("details"):
+                    event_new_snapshot["operation_details"] = dict(event["details"])
+                cursor.execute(
+                    """INSERT INTO recipe_change_history (recipe_id, version_id, operation, old_data, new_data, changed_by)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (recipe_id, version_id, event.get("operation") or operation,
+                     json.dumps(old_snapshot, ensure_ascii=False), json.dumps(event_new_snapshot, ensure_ascii=False), changed_by),
+                )
             cursor.execute("DELETE FROM recipe_chemicals WHERE recipe_id = ?", (recipe_id,))
             cursor.execute("DELETE FROM recipe_colors WHERE recipe_id = ?", (recipe_id,))
             cursor.execute(
@@ -2209,11 +2267,6 @@ class DatabaseManager:
             for chemical in chemicals:
                 data = chemical if isinstance(chemical, dict) else chemical.__dict__
                 cursor.execute("INSERT INTO recipe_chemicals (recipe_id, code, name, quantity, unit) VALUES (?, ?, ?, ?, ?)", (recipe_id, data.get("code", ""), data.get("name", ""), data.get("quantity", 0), data.get("unit", "")))
-            cursor.execute(
-                """INSERT INTO recipe_change_history (recipe_id, version_id, operation, old_data, new_data, changed_by)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (recipe_id, version_id, operation, json.dumps(old_snapshot, ensure_ascii=False), json.dumps(new_snapshot, ensure_ascii=False), changed_by),
-            )
             conn.commit()
             self._invalidate_read_cache()
             return True, f"Recipe updated successfully (version {version_no})."
@@ -2279,6 +2332,114 @@ class DatabaseManager:
             operation="replace_color",
             operation_details={"old_color_code": old_code, "new_color_code": new_code},
         )
+
+    def update_recipe_color_percentage(
+        self,
+        recipe_id: int,
+        color_code: str,
+        new_percentage: float,
+        changed_by: str = None,
+    ) -> Tuple[bool, str]:
+        """Update one color quantity and record an ``update_quantity`` event."""
+        details = self.get_recipe_details(recipe_id)
+        if not details or not details.get("recipe"):
+            return False, f"Recipe with ID {recipe_id} not found."
+        code = str(color_code or "").strip().zfill(5)
+        colors = [dict(color) for color in details.get("colors", [])]
+        target = next((color for color in colors if str(color.get("code", "")).strip().zfill(5) == code), None)
+        if target is None:
+            return False, f"Color '{code}' is not used by this recipe."
+        old_percentage = target.get("percentage")
+        target["percentage"] = new_percentage
+        from app.calculator import ChemicalCalculator
+        type_totals = {}
+        for color in colors:
+            dye_type = color.get("dye_type", "")
+            type_totals[dye_type] = type_totals.get(dye_type, 0) + float(color.get("percentage", 0))
+        dominant_type = max(type_totals, key=type_totals.get) if type_totals else "GENERAL"
+        total = sum(float(color.get("percentage", 0)) for color in colors)
+        return self.update_recipe_contents(
+            recipe_id,
+            details["recipe"].recipe_code,
+            details["recipe"].name,
+            colors,
+            ChemicalCalculator.calculate_chemicals(total, dominant_type),
+            changed_by=changed_by,
+            operation="update_quantity",
+            operation_details={"color_code": code, "old_percentage": old_percentage, "new_percentage": new_percentage},
+        )
+
+    def create_production_record(self, recipe_id: int, created_by: str = None) -> int:
+        """Persist the exact recipe contents used by a production operation."""
+        details = self.get_recipe_details(recipe_id)
+        if not details:
+            raise ValueError(f"Recipe with ID {recipe_id} not found.")
+        recipe = details["recipe"]
+        snapshot = {
+            "recipe_code": recipe.recipe_code,
+            "name": recipe.name,
+            "colors": [dict(color) for color in details.get("colors", [])],
+            "chemicals": [
+                chemical if isinstance(chemical, dict) else {
+                    "code": chemical.code, "name": chemical.name,
+                    "quantity": chemical.quantity, "unit": chemical.unit,
+                }
+                for chemical in details.get("chemicals", [])
+            ],
+        }
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COALESCE(MAX(version_no), 0) + 1 FROM recipe_versions WHERE recipe_id = ?", (recipe_id,))
+            version_no = int(cursor.fetchone()[0])
+            cursor.execute(
+                """INSERT INTO recipe_versions
+                   (recipe_id, version_no, recipe_code, name, snapshot_json, created_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (recipe_id, version_no, recipe.recipe_code, recipe.name,
+                 json.dumps(snapshot, ensure_ascii=False), created_by),
+            )
+            version_id = cursor.lastrowid
+            cursor.execute(
+                """INSERT INTO production_records
+                   (recipe_id, recipe_version_id, recipe_code, recipe_name, snapshot_json, created_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (recipe_id, version_id,
+                 recipe.recipe_code, recipe.name, json.dumps(snapshot, ensure_ascii=False), created_by),
+            )
+            record_id = cursor.lastrowid
+            conn.commit()
+            return record_id
+        except Exception:
+            if conn:
+                conn.rollback()
+            raise
+        finally:
+            if conn:
+                conn.close()
+
+    def get_production_record(self, record_id: int) -> Optional[Dict]:
+        """Read a production snapshot without consulting the current recipe."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                """SELECT id, recipe_id, recipe_version_id, recipe_code, recipe_name,
+                          snapshot_json, created_at, created_by
+                   FROM production_records WHERE id = ?""",
+                (record_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "id": row[0], "recipe_id": row[1], "recipe_version_id": row[2],
+                "recipe_code": row[3], "recipe_name": row[4],
+                "snapshot": json.loads(row[5]), "created_at": row[6], "created_by": row[7],
+            }
+        finally:
+            if conn:
+                conn.close()
 
     def get_recipe_history(self, recipe_id: int) -> List[Dict]:
         """Return immutable pre-edit snapshots and change metadata."""
